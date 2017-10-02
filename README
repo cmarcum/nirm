@@ -1,0 +1,49 @@
+#This file to be kept in /repos/Tools/nirm/
+#Created on 12 January 12
+#Last modified on 07 May 12
+
+Note: 
+    Use the most current binary version of nirm is located in nirm.tags/
+    Do not compile the nirm package "natively" 
+    To compile, use R CMD BATCH compile.nirm.R
+    The original sources of the nirm package are located in: ../Flu_R21/Flu model on the network/
+    In this document, reference is made to "/path/to/", which simply means "the path to your SVN repository."
+
+Updating Code and Package:
+    A) Changes to internal functionality (i.e., EVOLVE dynamics, adding/modifying/removing functions, behavioral models, etc) 
+          should be made and committed to the appropriate source files in ../Flu_R21/Flu model on the network/ . Changes to
+          model arguments or order-of-operations should be made to nirm.master.R. However modifying nirm.master.R should be 
+          limited to rare cases as errors in this file will break the package. Assuming that nirm.master.R is not to be changed,
+          the following list can be used as working-model of updating the package:
+             1) Add a new function to ../Flu_R21/Flu model on the network/Library/ called foo.R and commit file to SVN
+             2) Manually increment the "Version" number in /path/to/RiskPerceptionNetworks/Tools/nirm/nirm/DESCRIPTION by +0.0.1
+             3) Manually document the change following GNU ChangeLog rules in /path/to/RiskPerceptionNetworks/Tools/nirm/nirm/ChangeLog
+             4) Set working directory to /path/to/RiskPerceptionNetworks/Tools/nirm/
+             5) Compile (see below)
+             6) Commit changes to SVN.
+    B) Changes to package documentation should be done using the Rd typsetting format and only committed to 
+       /path/to/RiskPerceptionNetworks/Tools/nirm/nirm/man/nirm.Rd
+    C) It is important to increment the Version number and document changes in the ChangeLog. Failing to increment the Version
+       number will result in previous package overwriting upon compilation.
+
+To Compile:
+    Compilation can only be done from a Linux or Mac terminal. Windows compilation is currently not supported.
+    1) Working directory must be: /path/to/RiskPerceptionNetworks/Tools/nirm/
+       where "/path/to" is your SVN repository path.
+    2) If changes were made to the files, be sure that you incremented the Version number in /nirm/DESCRIPTION and documented
+       these changes in the /nirm/ChangeLog
+    3) Compilation is done in on easy step from the terminal command-line:
+       $> R CMD BATCH compile.nirm.R
+    4) The newly compiled package will be located in /nirm.tags/nirm.v.tar.gz where "v" is the version number.
+
+To Install (MAC and Linux):
+    From a command line terminal run: R CMD INSTALL /path/to/RiskPerceptionNetworks/Tools/nirm/nirm.tags/nirm.v.tar.gz
+       where "/path/to" is your SVN repository path and "nirm.v.tar.gz" is the version of the package you want to install (i.e., nirm.0.5.7.tar.gz)
+To Install (Windows):
+    Please reference the online R Windows documentation for how to install downloaded packages. :)
+
+WARNING:
+    Remember to manually update all R documentation files in /nirm/man/, failing to do so will cause compilation to fail.
+    Remember to manually increment the R package version in /nirm/DESCRIPTION, failing to do so will OVERWRITE your old package in nirm.tags/
+
+

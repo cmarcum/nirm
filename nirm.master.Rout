@@ -1,0 +1,204 @@
+
+R version 2.15.0 (2012-03-30)
+Copyright (C) 2012 The R Foundation for Statistical Computing
+ISBN 3-900051-07-0
+Platform: x86_64-pc-linux-gnu (64-bit)
+
+R is free software and comes with ABSOLUTELY NO WARRANTY.
+You are welcome to redistribute it under certain conditions.
+Type 'license()' or 'licence()' for distribution details.
+
+  Natural language support but running in an English locale
+
+R is a collaborative project with many contributors.
+Type 'contributors()' for more information and
+'citation()' on how to cite R or R packages in publications.
+
+Type 'demo()' for some demos, 'help()' for on-line help, or
+'help.start()' for an HTML browser interface to help.
+Type 'q()' to quit R.
+
+> ####################################################################################
+> ####################################################################################
+> ##                        Network Inductive Reasoning Model                       ##
+> ##                                                                                ##
+> ## Model Code Written by Raffael Vardavas (vardavas@rand.org)                     ##
+> ## R-Package Authored by Christopher Steven Marcum (cmarcum@rand.org)             ##
+> ## Package Maintained by Christopher Steven Marcum (cmarcum@rand.org)             ##
+> ## Created on 2 January 2012                                                      ##
+> ## Last Modified on 30 April 2012                                                 ##
+> ##                                                                                ##
+> ## Part of the nirm package for R                                                 ##
+> ## Compile with R CMD BATCH compile.nirm.R                                        ##
+> ## WARNING: Contains Hooks. Read compile.nirm.R header before editing.            ##
+> ##                                                                                ##
+> ####################################################################################
+> ####################################################################################
+> 
+> nirm<-function(network.model=c("Erdos","Watts","NW.Watts","Barabasi","Empirical"),
++                N=10^3,M=20,behavioral.model="Simple_Personal",enet=NULL,usbm=NULL,
++                hyper.params=list(model=c(R0=2,gamma=1/3,iip=.02,eff=1,tfs=300,s.mem=.7),vattr=cbind(V=rep(0,N-1),w=rep(0.3,N-1),inf.nn=rep(0,N-1),vacc.nn=rep(0,N-1))),
++                added.RMCN=FALSE, RMCN.R0=0, output.dir="",save.model=TRUE,verbose=FALSE,seed=NULL){
++    #First, a bunch of user input checks:
++    if(!any(network.model%in%c("Erdos","Watts","NS.Watts","Barabasi","Empirical"))){stop("Invalid Network Model. See help(\"nirm\") for details.")}
++    network.model<-network.model[1]
++    if(network.model=="Empirical" & is.null(enet)){stop("You say you want to use an empirical network, yet your enet object is NULL.")}
++    if(network.model!="Empirical" & !is.null(enet)){stop("You say you want to use a theoretical network, yet your enet object is non-NULL.")}
++    if(added.RMCN & RMCN.R0==0){warning("You have not specified an R0 for the RMCN.")} 
++    if(output.dir==""){warning("You have not specified an output directory. Using present working directory; I hope you have enough free-memory here.")} 
++ 
++    #Set the top environment
++    nirm.env<-environment()   
++ 
++    #Set seed if necessary
++    if(!is.null(seed)){set.seed(seed)}
++ 
++    #initialize params and placeholders
++    ave.degree<-M
++    attributes.data<-as.data.frame(hyper.params$vattr)
++    #We no longer use betas in the program. Commented out in Raff's original source. - CSM & RV 30 April 12
++    #big.beta.pref<-hyper.params$model["b0"]   
++    #big.beta.pop<-hyper.params$model["B0"]
++    gamma<-hyper.params$model["gamma"]
++    R0.pop<-as.numeric(added.RMCN*RMCN.R0)
++    R0.pref<-hyper.params$model["R0"]
++    #We do not use R0.beta.pop- CSM & RV 30 April 12
++    #R0.beta.pop<-big.beta.pop/gamma
++ 
++    initial.inf.prop<-hyper.params$model["iip"]
++    eff<-hyper.params$model["eff"]
++    total.flu.seasons<-hyper.params$model["tfs"]
++    s.mem<-hyper.params$model["s.mem"]
++ 
++    names.outcomes <- c("VaccInf","Vacc","Inf","UnInf")
++    names.evaluation.levels <- c("Personal",
++                              "Local.Inf","Local.Vacc",
++                              "Global.Inf","Global.Vacc")
++ 
++    behavioral.weights <- matrix(0,nrow=length(names.outcomes),
++                              ncol=length(names.evaluation.levels), dimnames=
++                              list(names.outcomes,names.evaluation.levels))
++    
++    Stiffness<-rep(0,length(names.outcomes))  
++    names(Stiffness)<-names.outcomes  
++    Personal.Delta<-rep(0,length(names.outcomes))  
++    names(Personal.Delta)<-names.outcomes
++    Behavioral.Model<-behavioral.model
++    Pop.Samp <- list(NULL)
++    flu.season<-1
++    
++    #Reset params if user supplied network is valid
++    if(network.model=="Empirical"){
++       if(is.directed(enet)){stop("This appears to be a directed network. Please supply an undirected one.")}
++       N<-vcount(enet)
++       M<-ecount(enet) #possibly used at a later date
++       ave.degree<-mean(degree(enet))
++       ave.degree.f<-as.character(ceiling(ave.degree)) #Placeholder for file naming precedent.
++       g.PTN<-enet
++       g.PTN <- simplify(g.PTN)
++ 
++       g.PTN <- Initialize.All.Vertex.Attributes(g.PTN, attributes.data)
++       g <- g.PTN
++       model<-network.model
++ 
++       #list of nearest neighbours (nn) on the static Social Network. 
++       nn.list.PTN <- get.nn.list.of.SN(g.PTN)
++       N.nn <- degree(g.PTN)
++       phi<-NA
++      #Save the PTN in an R object - for post analysis.
++      network.file.name <- paste(model,"_N",as.character(log(N,10)),
++                            "_avek_",ave.degree.f,
++                            ".RData",sep="")
++      save(g,N,phi,nn.list.PTN, file = network.file.name, compress="xz")
++ 
++    }
++ 
++    #Finalize vector of initial model parameterize to pass to other methods 
++    #Changed 30 April 2012 to new parameters (sans betas) -CSM & RV
++    params.of.model <- c(N=N,ave.degree= ave.degree, s.mem=s.mem, initial.inf.prop=initial.inf.prop,R0.pref=R0.pref,
++                      R0.pop=R0.pop,gamma=gamma,total.flu.seasons=total.flu.seasons,
++                      eff=eff,added.RMCN=added.RMCN)
++ 
++    #Methods for other network models
++    if(network.model!="Empirical"){
++       if(network.model=="Erdos"){model<-"erdos.renyi.game"}
++       if(network.model=="Watts"){model<-"watts.strogatz.game"}
++       if(network.model=="NW.Watts"){model<-"NW.watts.strogatz.game"}
++       if(network.model=="Barabasi"){model<-"barabasi.game"}
++       #PTN FILE HERE
++ 
++ 
++    }   
++ 
++    #Reparametrize model if user-supplied behavioral model is valid
++    if(!is.null(usbm)){
++       behavioral.weights<-usbm$behavioral.weights
++       Stiffness<-usbm$Stiffness
++       Personal.Delta<-usbm$Personal.Delta
++       behavioral.model<-"USBM"
++    }
++    
++    #Set the behavioral model
++    set.behavioral.model(behavioral.model,params.of.model,behavioral.weights,Personal.Delta,Stiffness,names.outcomes,nirm.env)
++ 
++    #What time is it now?
++    rtime1<-proc.time()[3]
++    #DYNAMICS FILE HERE
++ 
++ 
++    #Finalizing the output for 
++    #what time is it now?
++    rtime2<-proc.time()[3]
++    outpm<-list(Params=params.of.model,Results=seasonal.output,Runtime=rtime2-rtime1)
++    class(outpm)<-"nirm"
++    return(outpm)
++ }
+> 
+> print.nirm<-function(x,...){
++    cat("Summary of Network Inductive Reasoning Model \n")
++    cat("\t Model Parameters \n")
++    cat(" Size of Network: \t",x$Params["N"],"\n")
++    cat(" Network Model: \t",x$Params["model"],"\n")
++    cat(" Behavioral Model: \t",x$Params["Behavioral.Model"],"\n\n")
++    cat(" Number of Seasons: \t",x$Params["total.flu.seasons.tfs"],"\n")
++    cat(" Initial Pr(Cond): \t",x$Params["initial.inf.prop.iip"],"\n")
++    cat(" Suppressant Efficacy: \t",x$Params["eff.eff"],"\n")
++    cat(" SIR Parameters: \n\t ",
++       paste("R_0=",round(as.numeric(x$Params["R0.pref"]),3),";","R_0.pop=",round(as.numeric(x$Params["R0.pop"]),3),";","gamma=",round(as.numeric(x$Params["gamma.gamma"]),3)),"\n\n")
++    
++    #Define Harmonic Mean for Detecting Epidemics as H+1.96*(sd(H))
++    #H.mean<-function(m){length(m)/sum(1/m)}
++    #H.sd<-function(m){sqrt(sum((m-H.mean(m))^2)/length(m))}
++    N<-as.numeric(x$Params["N"])
++    w.per.season<-unlist(lapply(x$Results,function(x) mean(x[[1]][,"w"])))
++    inc.per.season<-unlist(lapply(x$Results,function(x) sum(x[[1]][,"inf"])/N))
++    cat("\t Seasonal Distributions \n") 
++    cat(" E[W]\n")
++    print(round(quantile(w.per.season,prob=c(0.025,.5,.975)),3))
++    cat(" Incidence\n")
++    print(round(quantile(inc.per.season,prob=c(0.025,.5,.975)),3))
++    cat("Seasonal Correlation between E[W] and Incidence:",round(cor(w.per.season,inc.per.season),3),"\n\n")
++    cat("This model took",x$Runtime, "seconds to run.\n")
++    invisible(x)
++ }
+> 
+> set.behavioral.model<-function(Behavioral.Model,params.of.model,behavioral.weights,Personal.Delta,Stiffness,names.outcomes,nirm.env){
++    if(Behavioral.Model=="USBM" || is.null(Behavioral.Model)){return(print("Using User-Supplied Behavioral Model"))}
++    beh.env<-environment()
++    
++    #BEH MODELS HERE
++ 
++ 
++    #Send the model back to the nirm environment
++    for(i in 1:length(ls(envir=beh.env))){
++       assign(ls(envir=beh.env)[i],get(ls(envir=beh.env)[i]),envir=nirm.env)
++    }
++ }
+> 
+>    #FUNCTIONS HERE
+> 
+> #EOF
+> 
+> proc.time()
+   user  system elapsed 
+  0.216   0.024   0.231 

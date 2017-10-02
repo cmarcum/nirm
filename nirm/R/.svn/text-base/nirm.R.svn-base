@@ -1,0 +1,1760 @@
+####################################################################################
+####################################################################################
+##                        Network Inductive Reasoning Model                       ##
+##                                                                                ##
+## Model Code Written by Raffael Vardavas (vardavas@rand.org)                     ##
+## R-Package Authored by Christopher Steven Marcum (cmarcum@rand.org)             ##
+## Package Maintained by Christopher Steven Marcum (cmarcum@rand.org)             ##
+## Created on 2 January 2012                                                      ##
+## Last Modified on 7 May 2012                                                    ##
+##                                                                                ##
+## Part of the nirm package for R                                                 ##
+## Compile with R CMD BATCH compile.nirm.R                                        ##
+## WARNING: Contains Hooks. Read compile.nirm.R header before editing.            ##
+##                                                                                ##
+####################################################################################
+####################################################################################
+
+nirm<-function(network.model=c("Erdos","Watts","NW.Watts","Barabasi","Empirical"),
+               N=10^3,M=20,behavioral.model="Simple_Personal",enet=NULL,usbm=NULL,
+               hyper.params=list(model=c(R0=2,gamma=1/3,iip=.02,eff=1,tfs=300,s.mem=.7),vattr=cbind(V=rep(0,N),w=rep(0.3,N),inf.nn=rep(0,N),vacc.nn=rep(0,N))),
+               added.RMCN=FALSE, RMCN.R0=0, output.dir="Temp/",save.model=TRUE,verbose=FALSE,seed=NULL){
+   #First, a bunch of user input checks:
+   if(!any(network.model%in%c("Erdos","Watts","NW.Watts","Barabasi","Empirical"))){stop("Invalid Network Model. See help(\"nirm\") for details.")}
+   network.model<-network.model[1]
+   if(network.model=="Empirical" & is.null(enet)){stop("You say you want to use an empirical network, yet your enet object is NULL.")}
+   if(network.model!="Empirical" & !is.null(enet)){stop("You say you want to use a theoretical network, yet your enet object is non-NULL.")}
+   if(added.RMCN & RMCN.R0==0){warning("You have not specified an R0 for the RMCN.")} 
+   if(output.dir==""){warning("You have not specified an output directory. Using present working directory; I hope you have enough free-memory here.")} 
+   #Now all output files get a unique ID: 
+   mxid<-paste("_MX",substr(strsplit(as.character(runif(1)),"\\.")[[1]][2],1,8),sep="")
+   
+   ### Set Output Dir, 
+   if(!file.exists(output.dir)){dir.create(output.dir)}
+   data.dir   <- paste(output.dir,"Data/",sep="")
+   if(!file.exists(data.dir)){dir.create(data.dir)}
+   analysis.dir   <- paste(output.dir,"Analysis/",sep="")
+   if(!file.exists(analysis.dir)){dir.create(analysis.dir)}
+   if(!file.exists(paste(output.dir,"Output",sep=""))){dir.create(paste(output.dir,"Output",sep=""))}
+   output.networks.dir <- paste(output.dir,"Output/Networks/",sep="")
+   if(!file.exists(output.networks.dir)){dir.create(output.networks.dir)}
+   output.dynamics.dir <- paste(output.dir,"Output/Dynamics/",sep="")
+   if(!file.exists(output.dynamics.dir)){dir.create(output.dynamics.dir)}
+   figure.dir   <- paste(output.dir,"Figure/",sep="")
+   if(!file.exists(figure.dir)){dir.create(figure.dir)}      
+
+   #This flag is for future functionality:
+   Do.Comp.Percolation.Analysis<-FALSE
+   model.specs<-NULL #Raff added this at the bottom of the setup file.
+   #Set the top environment
+   nirm.env<-environment()   
+
+   #Set seed if necessary
+   if(!is.null(seed)){set.seed(seed)}
+
+   #initialize params and placeholders
+   ave.degree<-M
+   attributes.data<-as.data.frame(hyper.params$vattr)
+   #We no longer use betas in the program. Commented out in Raff's original source. - CSM & RV 30 April 12
+   #big.beta.pref<-hyper.params$model["b0"]   
+   #big.beta.pop<-hyper.params$model["B0"]
+   gamma<-hyper.params$model["gamma"]
+   R0.pop<-as.numeric(added.RMCN*RMCN.R0)
+   R0.pref<-hyper.params$model["R0"]
+   #We do not use R0.beta.pop- CSM & RV 30 April 12
+   #R0.beta.pop<-big.beta.pop/gamma
+   model<-network.model[1]
+
+   initial.inf.prop<-hyper.params$model["iip"]
+   eff<-hyper.params$model["eff"]
+   total.flu.seasons<-hyper.params$model["tfs"]
+   s.mem<-hyper.params$model["s.mem"]
+
+   names.outcomes <- c("VaccInf","Vacc","Inf","UnInf")
+   names.evaluation.levels <- c("Personal",
+                             "Local.Inf","Local.Vacc",
+                             "Global.Inf","Global.Vacc")
+
+   behavioral.weights <- matrix(0,nrow=length(names.outcomes),
+                             ncol=length(names.evaluation.levels), dimnames=
+                             list(names.outcomes,names.evaluation.levels))
+   
+   Stiffness<-rep(0,length(names.outcomes))  
+   names(Stiffness)<-names.outcomes  
+   Personal.Delta<-rep(0,length(names.outcomes))  
+   names(Personal.Delta)<-names.outcomes
+   Behavioral.Model<-behavioral.model
+   if(!is.null(usbm)){Behavioral.Model<-"USBM"}
+   Pop.Samp <- list(NULL)
+   flu.season<-1
+
+
+   network.file.name <- paste(model,"_N",as.character(log(N,10)),
+                           "_avek_",as.character(ave.degree),mxid,
+                           ".RData",sep="")
+
+    ### Extra label in file name
+    extra.file.name.label <- mxid
+
+   if(is.null(extra.file.name.label)){
+     output.file.name <- paste(model,"_N",as.character(log(N,10)),
+                               "_",Behavioral.Model,"_avek_",
+                               as.character(ave.degree),".RData",sep="")
+   }else{  
+     output.file.name <- paste(model,"_N",as.character(log(N,10)),
+                            "_",Behavioral.Model,"_avek_",as.character(ave.degree),
+                            extra.file.name.label,".RData",sep="")
+   }
+   
+   #Reset params if user supplied network is valid
+   if(network.model=="Empirical"){
+      if(is.directed(enet)){stop("This appears to be a directed network. Please supply an undirected one.")}
+      N<-vcount(enet)
+      M<-ecount(enet) #possibly used at a later date
+      ave.degree<-mean(degree(enet))
+      ave.degree.f<-as.character(ceiling(ave.degree)) #Placeholder for file naming precedent.
+      g.PTN<-enet
+      g.PTN <- simplify(g.PTN)
+
+      g.PTN <- Initialize.All.Vertex.Attributes(g.PTN, attributes.data)
+      g <- g.PTN
+      model<-network.model
+
+      #list of nearest neighbours (nn) on the static Social Network. 
+      nn.list.PTN <- get.nn.list.of.SN(g.PTN)
+      N.nn <- degree(g.PTN)
+      phi<-NA
+      #Save the PTN in an R object - for post analysis.
+      network.file.name <- paste(model,"_N",as.character(log(N,10)),
+                           "_avek_",ave.degree.f,mxid,
+                           ".RData",sep="")
+    
+      ### Extra label in file name
+      extra.file.name.label <- mxid
+
+      Theta.PTN <- R0.pref * (mean(N.nn^2) - mean(N.nn))/mean(N.nn)^2
+      pc.PTN <- 1 - 1/Theta.PTN
+      percolation.analisis <- list(Theta.PTN = Theta.PTN, pc.PTN = pc.PTN)
+
+      if(is.null(extra.file.name.label)){
+        output.file.name <- paste(model,"_N",as.character(log(N,10)),
+                               "_",Behavioral.Model,"_avek_",
+                               ave.degree.f,".RData",sep="")
+      }else{  
+        output.file.name <- paste(model,"_N",as.character(log(N,10)),
+                            "_",Behavioral.Model,"_avek_",ave.degree.f,
+                            extra.file.name.label,".RData",sep="")
+      }
+     if(save.model){
+        save(g.PTN,N,phi,N.nn,nn.list.PTN,percolation.analisis, file = paste(output.networks.dir,network.file.name,sep=""), compress="xz")}
+
+   }
+
+   #Finalize vector of initial model parameterize to pass to other methods 
+   #Changed 30 April 2012 to new parameters (sans betas) -CSM & RV
+   params.of.model <- c(N=N,ave.degree=ave.degree, s.mem=s.mem, initial.inf.prop=initial.inf.prop,R0.pref=R0.pref,
+                     R0.pop=R0.pop,gamma=gamma,total.flu.seasons=total.flu.seasons,
+                     eff=eff,added.RMCN=added.RMCN)
+
+   #Methods for other network models
+   if(network.model!="Empirical"){
+      if(network.model=="Erdos"){model<-"erdos.renyi.game"}
+      if(network.model=="Watts"){model<-"watts.strogatz.game"}
+      if(network.model=="NW.Watts"){model<-"NW.watts.strogatz.game"}
+      if(network.model=="Barabasi"){model<-"barabasi.game"}
+      #PTN FILE HERE
+
+#############################################################
+###                                                       ###
+###        CONSTRUCT SOCIAL CONTACT NETWORKS              ###
+###                                                       ###
+#############################################################
+
+if(verbose) print(":: CONSTRUCT SOCIAL CONTACT NETWORKS ::")
+
+network.file.name <- paste(output.networks.dir,network.file.name,sep="")
+if(file.exists(network.file.name) & !Do.Comp.Percolation.Analysis & FALSE){
+  load(file = network.file.name) 
+  
+  if(!test.Object.Exists(g) & !test.Object.Exists(g.PTN)) stop("g.PTN nor g exist in load up")
+  if(!test.Object.Exists(g))  g<- g.PTN
+  if(!test.Object.Exists(g.PTN))  g.PTN<- g
+  
+  if(round(mean(degree(g.PTN)),0)!=ave.degree) stop("ave.degree mismatch in loading: see Construct_PTN.R")
+  
+}else{
+### set initial nodes attributes
+#I moved this to the Flu_model_frontend.R file, please do not uncomment --- CSM 11 Jan 12
+#attributes.data <- as.data.frame(cbind(V=rep(0,N),w=rep(0.3,N),inf.nn=rep(0,N),vacc.nn=rep(0,N)))
+
+### Note there is a fn called Regenerate.g.PTN that does very similar things - if this changes
+### please check to see if Regenerate.g.PTN needs changing too.
+
+if(model=="erdos.renyi.game"){
+  ### Construct the Static Preferential Transmission Network (PTN). Assume this to also be the Social Network.
+  phi <- ave.degree/(N-1)
+  g.PTN <- erdos.renyi.game(N, phi)
+  
+  model.specs <- c(model.specs,model=model)
+  params.of.model <- c(params.of.model,ave.degree=ave.degree)
+}
+
+if(model=="watts.strogatz.game"){
+  phi <- 0.5
+  g.PTN <- watts.strogatz.game(dim=1, size=N, nei=round(ave.degree/2,0), phi)
+  ### note that the simplify removes loops and multiple edges: 
+  ### for low N we are thus loosing some edges.  
+  
+  model.specs <- c(model.specs,model=model)
+  params.of.model <- c(params.of.model,ave.degree=ave.degree,phi=phi)
+}
+
+if(model=="NW.watts.strogatz.game"){
+  phi <- 0.5
+  g.PTN <- NW.watts.strogatz.game(dim=1,size=N,nei=round(ave.degree/2,0),phi)
+  model.specs <- c(model.specs,model=model)
+  params.of.model <- c(params.of.model,ave.degree=ave.degree,phi=phi)
+}
+ 
+if(model=="barabasi.game"){
+  g.PTN <- barabasi.game(n=N,power=1,m=round(ave.degree/2,0),directed=FALSE)
+  params.of.model <- c(params.of.model,model=model,ave.degree=ave.degree,power=1)
+  phi<-NA #still need this because of saving below - CSM 12 Jan 12
+  
+  model.specs <- c(model.specs,model=model)
+  params.of.model <- c(params.of.model,ave.degree=ave.degree,phi=phi)
+}
+
+g.PTN <- simplify(g.PTN)
+
+g.PTN <- Initialize.All.Vertex.Attributes(g.PTN, attributes.data)
+g <- g.PTN
+
+### list of nearest neighbours (nn) on the static Social Network. 
+nn.list.PTN <- get.nn.list.of.SN(g.PTN)
+N.nn <- degree(g.PTN)
+
+
+
+### Do Theoretical Percolation Analysis 
+Theta.PTN <- R0.pref*(mean(N.nn^2)-mean(N.nn))/mean(N.nn)^2
+pc.PTN <- 1-1/Theta.PTN
+
+percolation.analisis <- list(Theta.PTN=Theta.PTN,pc.PTN=pc.PTN)
+if(Do.Comp.Percolation.Analysis){
+### Run Practical Percolation Analysis
+q.table.random <- SIR.Prob.Infection.Table(model=model,N=N,ave.degree=ave.degree,R0.pref,R0.pop,eff=eff,p.seq=p.seq, 
+                                    mc.perc.runs=mc.perc.runs,added.RMCN=FALSE,preferential=FALSE,verbose=verbose)
+
+q.table.preferential <- SIR.Prob.Infection.Table(model=model,N=N,ave.degree=ave.degree,R0.pref,R0.pop,eff=eff,p.seq=p.seq, 
+                                    mc.perc.runs=mc.perc.runs,added.RMCN=FALSE,preferential=TRUE,verbose=verbose)
+
+
+percolation.analisis <- list(Theta.PTN=Theta.PTN,pc.PTN=pc.PTN, q.table.random=q.table.random,
+                             q.table.preferential=q.table.preferential,
+                             R0.pref=R0.pref,R0.pop=R0.pop,eff=eff,
+                             p.seq= p.seq, mc.perc.runs=mc.perc.runs,added.RMCN=added.RMCN)
+}
+
+### Save the PTN in an R object - for post analysis.
+save(g.PTN,N,phi,N.nn,nn.list.PTN,percolation.analisis, file = network.file.name)
+}
+   }   
+
+   #Reparametrize model if user-supplied behavioral model is valid
+   if (!is.null(usbm)){
+     behavioral.weights <- usbm$behavioral.weights
+     Stiffness <- usbm$Stiffness
+     Personal.Delta <- usbm$Personal.Delta
+     behavioral.model <- "USBM"
+
+     for(i in 1:length(usbm$dfuns)){
+        assign(names(usbm$dfuns)[i],usbm$dfuns[[i]],envir=nirm.env)
+     }
+
+     model.specs <- c(model.specs, Behavioral.Model = Behavioral.Model)
+     params.of.model <- c(params.of.model, Personal.Delta = Personal.Delta, Stiffness = Stiffness)
+    }
+
+   
+   #Set the behavioral model
+   set.behavioral.model(behavioral.model,params.of.model,behavioral.weights,Personal.Delta,Stiffness,names.outcomes,verbose,model.specs,nirm.env)
+
+   #What time is it now?
+   rtime1<-proc.time()[3]
+   #DYNAMICS FILE HERE
+
+#############################################################
+###                                                       ###
+###                   EVOLVE DYNAMICS:                    ###
+###                                                       ###
+#############################################################
+
+if(verbose) print(paste("::EVOLVE DYNAMICS::",sep=""))
+
+max.V.pro <- 0
+
+if(verbose) print(paste("::Reached Season::",sep=""))
+for(flu.season in 1:total.flu.seasons){
+  
+  if(verbose & flu.season%%100==0 ) print(as.character(flu.season))
+  
+  ### Reset the network back to g.PTN but keep updated attributes 
+  g.PTN <- Copy.All.Vertex.Attributes(g.PTN,g)   
+  
+  ### Get Active Transmission Network (ATN): Deactivate bonds based on transmissibility 
+  g.APTN <- get.Active.Transmission.Network(g.PTN,R0.pref)
+  
+  if(added.RMCN){
+    ### Construct the Random Mixing Contact Network (RMCN)
+    T.bond <- get.T.bond(R0.pop,N)  ### random network ave_k per node is =N
+    g.RMCN  <- erdos.renyi.game(N, T.bond)
+    
+    ### Construct the Overall Potentially Active Contact Network
+    g <- graph.union.plus.attributes(g.APTN, g.RMCN) 
+  }else{g <- g.APTN}
+  rm(g.APTN)
+  
+  ### g.cluster <- clusters(g)  ### this is not needed now but when an g.RMCN is on then maybe
+ 
+   
+  #############################################################
+  ###                                                       ###
+  ###                       DECISIONS:                      ###
+  ###           Apply Vaccination Decisions on Network      ###
+  ###                                                       ###
+  #############################################################
+  
+  ### sample initially vaccinated
+  decide.to.vacc.samp <- (runif(N,0,1) <= V(g)$w)
+  if.vacc.then.effect <- (runif(N,0,1) <= eff)
+  
+  vacc.samp <- decide.to.vacc.samp & if.vacc.then.effect
+  vacc.but.ineff.samp <- decide.to.vacc.samp & !if.vacc.then.effect
+  
+  susc.samp <- !vacc.samp ### these include the vacc.but.ineff.samp
+  
+  susceptible <- get.person.IDs(g,susc.samp)                    
+  vaccinated  <- get.person.IDs(g,vacc.samp)  
+  N.vacc      <- length(vaccinated)
+  
+  ### Get the Network of the susceptibles
+  g.sub <- get.exposed.network(g,susceptible)
+  N.sub <- g.sub[[1]]
+  
+  
+  #############################################################
+  ###                                                       ###
+  ###                       OUTCOME:                        ###
+  ###     Contruct the Cluster of those that got Infected   ###
+  ###                                                       ###
+  #############################################################
+    
+  ### Placed Initial infected on the ATN: Sample the initial infected nodes
+  expected.vacc.coverage <- eff*sum(V(g)$w)/N
+  initial.inf.samp <- (runif(N.sub,0,1) <= initial.inf.prop/(1-expected.vacc.coverage))
+  initial.infected <- get.person.IDs(g.sub,initial.inf.samp)
+  
+  ### Do Connected Cluster Analysis in the ATN
+  g.sub.cluster <- clusters(g.sub)
+  g.sub.mem     <- g.sub.cluster$membership
+  ### Map cluster Analysis of ATN to the SN
+  g.mem <- rep(NA,N)
+  g.mem[susc.samp] <- g.sub.mem
+  g.mem[vacc.samp] <- -1
+  
+  ### Get all the IDs of the nodes in g.sub that belong to the same cluster as an initally infected node.
+  IDs.of.infected.clusters <- unique(g.sub.mem[initial.infected])  
+  inf.samp.in.g.sub <- (g.sub.mem %in% IDs.of.infected.clusters)
+  
+  ### Map the obtained IDs of the infected in g.sub to IDs in g
+  inf.samp <- Get.Infected.samp.from.sub.g(g,susc.samp,inf.samp.in.g.sub)        
+  infected <- get.person.IDs(g,inf.samp) 
+  N.inf    <- length(infected)
+  
+  susc.samp <- (susc.samp & !inf.samp)  
+  
+  
+  ### Note: if p=0 then in this SIR or SEIR we get R=N at t=inf. However we need to correct 
+  ### based on R0 and 1/mu as it relates to T to predict what fraction of N is infected by time T.
+  
+  ### set the attribute that counts the number of known nn 
+  ## vaccinated and infected individuals in the Social Network PTN   
+  ifelse(sum(behavioral.weights[,"Local.Vacc"])>0,
+  V(g)$vacc.nn <- unlist(lapply(nn.list.PTN,get.num.nn.with.att,att.samp=decide.to.vacc.samp)),
+  V(g)$vacc.nn <- 0)
+  
+  ifelse(sum(behavioral.weights[,"Local.Inf"])>0,
+  V(g)$inf.nn <- unlist(lapply(nn.list.PTN,get.num.nn.with.att,att.samp=inf.samp)),
+  V(g)$inf.nn <- 0)
+         
+  #############################################################
+  ###                                                       ###
+  ###                     EVALUATION:                       ###
+  ### Evaluate Chosen Strategy and Update Vaccination Prob. ###
+  ###                                                       ###
+  #############################################################
+  
+  max.V.pro <- s.mem*max.V.pro + 1
+  delta <- rep(0,N)  
+  eps   <- rep(0,N)
+  
+  ### the Behavioral.Model.R specifies these four functions below
+  Local.Inf.Delta   <- get.Local.Inf.Delta(V(g)$inf.nn/N.nn)
+  Local.Vacc.Delta  <- get.Local.Vacc.Delta(V(g)$vacc.nn/N.nn)
+  Global.Inf.Delta  <- get.Global.Inf.Delta(N.inf/N)  
+  Global.Vacc.Delta <- get.Global.Vacc.Delta(N.vacc/N) 
+  
+  ## Get rid of NaN in local deltas created by isolates 
+  Local.Inf.Delta[is.nan(Local.Inf.Delta)] <-0
+  Local.Vacc.Delta[is.nan(Local.Vacc.Delta)] <-0
+  
+  Pop.Samp[["VaccInf"]] <- (vacc.but.ineff.samp & inf.samp) 
+  Pop.Samp[["Vacc"]]    <- vacc.samp
+  Pop.Samp[["Inf"]]     <- (inf.samp & !vacc.but.ineff.samp)
+  Pop.Samp[["UnInf"]]   <- (!vacc.samp & !inf.samp)
+  
+  for(outcome in names.outcomes){
+  samp <- Pop.Samp[[outcome]]
+  delta[samp] <- Personal.Delta[outcome]*behavioral.weights[outcome,"Personal"]+
+                 Local.Inf.Delta[samp]*behavioral.weights[outcome,"Local.Inf"]+
+                 Local.Vacc.Delta[samp]*behavioral.weights[outcome,"Local.Vacc"]+
+                 Global.Inf.Delta*behavioral.weights[outcome,"Global.Inf"]+
+                 Global.Vacc.Delta*behavioral.weights[outcome,"Global.Vacc"]
+  
+  eps[samp] <- as.numeric(Stiffness[outcome])
+  }
+
+
+  V(g)$V <- s.mem*V(g)$V + delta 
+  V(g)$w <- eps*V(g)$w + (1-eps)*V(g)$V/max.V.pro
+  
+  ### Change.Vacc.Prob is no longer needed but we keep to remind us of the different approach
+  ###g <- Change.Vacc.Prob(g,s.mem,eps,kappa.nn,delta,max.V.pro,nn.list.PTN)
+  
+  #############################################################
+  ###                                                       ###
+  ###                      OUTPUT:                          ###
+  ###                 Write to Temp File                    ###
+  ###                                                       ###
+  #############################################################
+  
+  
+  ### Analyze the Network of susceptibles 
+  #ddist.g.sub <- degree.distribution(g.sub, cumulative = FALSE)
+  #g.sub.knn   <- graph.knn(g.sub)
+  
+  states=cbind(sus=susc.samp,vacc=vacc.samp,vaccinf=vacc.but.ineff.samp,
+               inf=inf.samp,cluster=g.mem,w=V(g)$w)
+
+  ### Save Temp file
+  save(states, file = paste(output.dir,"TempOutput_",model,
+                               "_season_",as.character(flu.season),".RData",sep=""))
+  
+  rm(g.sub)
+  gc()
+} ### end dynamics.
+
+
+#############################################################
+###                                                       ###
+###                      OUTPUT:                          ###
+###         Read Temp Output and write to one file        ###
+###                                                       ###
+#############################################################
+
+gc()
+
+if (verbose) print("::REACHED FINAL OUTPUT:: please wait a few more min")
+
+seasonal.output <- list(NULL)
+
+for(flu.season in 1:total.flu.seasons){
+  
+  load(file = paste(output.dir,"TempOutput_",model,
+                    "_season_",as.character(flu.season),".RData",sep=""),e<-new.env())
+  seasonal.output[[flu.season]]<- list(states=e$states)
+  
+}
+
+names(seasonal.output) <- 1:total.flu.seasons
+
+### Save Final Output Containing the Dynamics - CSM 12 JAN 12
+if(save.model){
+   save(params.of.model,model.specs,seasonal.output,
+      file = paste(output.dynamics.dir,output.file.name,sep=""), compress=T,safe=T)
+}
+
+### Delete All Temp Output Files
+for(flu.season in 1:total.flu.seasons){
+file.remove(file = paste(output.dir,"TempOutput_",model,
+                               "_season_",as.character(flu.season),".RData",sep=""))}
+
+#############################################################
+###                                                       ###
+###                       NOTES:                          ###
+###                                                       ###
+#############################################################
+
+### The final time comes from beta.
+### Thus we may need to make beta seasonal - i.e., changing over a 6 month period and run the model in delta t = 1 month.
+
+   #Finalizing the output for 
+   #what time is it now?
+   rtime2<-proc.time()[3]
+   params.of.model<-c(params.of.model,network.model,behavioral.model)
+   if(length(params.of.model)==20){
+   names(params.of.model)<-c("N","ave.degree","s.mem","initial.inf.prop","R0.pref","R0.pop","gamma","total.flu.seasons","eff","added.RMCN",
+   "Personal.Delta.VaccInf","Personal.Delta.Vacc","Personal.Delta.Inf","Personal.Delta.UnInf","Stiffness.VaccInf","Stiffness.Vacc","Stiffness.Inf",
+   "Stiffness.UnInf","model","behavioral.model")
+   }
+   if(length(params.of.model)==21){
+   names(params.of.model)<-c("N","ave.degree","s.mem","initial.inf.prop","R0.pref","R0.pop","gamma","total.flu.seasons","eff","added.RMCN",
+   "ave.degree2","Personal.Delta.VaccInf","Personal.Delta.Vacc","Personal.Delta.Inf","Personal.Delta.UnInf","Stiffness.VaccInf",
+   "Stiffness.Vacc","Stiffness.Inf","Stiffness.UnInf","model","behavioral.model")
+   params.of.model<-params.of.model[-11]
+   }
+   if(length(params.of.model)==22){
+   names(params.of.model)<-c("N","ave.degree","s.mem","initial.inf.prop","R0.pref","R0.pop","gamma","total.flu.seasons","eff","added.RMCN",
+   "ave.degree2","phi","Personal.Delta.VaccInf","Personal.Delta.Vacc","Personal.Delta.Inf","Personal.Delta.UnInf","Stiffness.VaccInf",
+   "Stiffness.Vacc","Stiffness.Inf","Stiffness.UnInf","model","behavioral.model")
+   params.of.model<-params.of.model[-11]
+   }
+   if(length(params.of.model)==25){
+   names(params.of.model)<-c("N","ave.degree","s.mem","initial.inf.prop","R0.pref","R0.pop","gamma","total.flu.seasons","eff","added.RMCN",
+   "model","ave.degree2","power","ave.degree3","phi","Personal.Delta.VaccInf","Personal.Delta.Vacc","Personal.Delta.Inf",
+   "Personal.Delta.UnInf","Stiffness.VaccInf","Stiffness.Vacc","Stiffness.Inf","Stiffness.UnInf","model","behavioral.model")
+   params.of.model<-params.of.model[-c(11,12,14)]
+   }
+   outpm<-list(Params=params.of.model,Results=seasonal.output,Runtime=rtime2-rtime1,File=output.file.name)
+   class(outpm)<-"nirm"
+   return(outpm)
+}
+
+print.nirm<-function(x,...){
+   cat("Summary of Network Inductive Reasoning Model \n")
+   cat("\t Model Parameters \n")
+   cat(" Size of Network: \t",x$Params["N"],"\n")
+   cat(" Network Model: \t",x$Params["model"],"\n")
+   cat(" Average Degree: \t",x$Params["ave.degree"],"\n")
+   cat(" Behavioral Model: \t",x$Params["behavioral.model"],"\n\n")
+   cat(" Number of Seasons: \t",x$Params["total.flu.seasons"],"\n")
+   cat(" Initial Pr(Cond): \t",x$Params["initial.inf.prop"],"\n")
+   cat(" Suppressant Efficacy: \t",x$Params["eff"],"\n")
+   cat(" SIR Parameters: \n\t ",
+      paste("R_0= ",round(as.numeric(x$Params["R0.pref"]),3),";","R_0.pop= ",round(as.numeric(x$Params["R0.pop"]),3),";","gamma= ",round(as.numeric(x$Params["gamma"]),3)),"\n\n")
+   
+   #Define Harmonic Mean for Detecting Epidemics as H+1.96*(sd(H))
+   #H.mean<-function(m){length(m)/sum(1/m)}
+   #H.sd<-function(m){sqrt(sum((m-H.mean(m))^2)/length(m))}
+   N<-as.numeric(x$Params["N"])
+   w.per.season<-unlist(lapply(x$Results,function(x) mean(x[[1]][,"w"])))
+   inc.per.season<-unlist(lapply(x$Results,function(x) sum(x[[1]][,"inf"])/N))
+   cat("\t Seasonal Distributions \n") 
+   cat(" E[W]\n")
+   print(round(quantile(w.per.season,prob=c(0.025,.5,.975)),3))
+   cat(" Incidence\n")
+   print(round(quantile(inc.per.season,prob=c(0.025,.5,.975)),3))
+   cat("Seasonal Correlation between E[W] and Incidence: ",round(cor(w.per.season,inc.per.season),3),"\n\n")
+   cat("This model took ",x$Runtime, "seconds to run.\n")
+   invisible(x)
+}
+
+read.nirm.log<-function(file){
+   if(!file.exists(file)){stop(paste("File, ",file," does not exist.",sep=""))}
+   return(read.csv(file,h=TRUE, stringsAsFactors=FALSE))
+}
+
+write.nirm.log<-function(x,loc="",append=TRUE){
+   if(class(x)!="nirm"){stop("Not a nirm object.")}
+   file<-x$File
+   if(!file.exists(loc)){warning(paste("Log file does not exist. Writing new file.",sep="")); append<-FALSE}
+   cnams<-c("filename","Network","Behavior","N","ave.degree","s.mem","initial.inf.prop","R0.pref","R0.pop","gamma","total.flu.seasons","eff","added.RMCN","Date")
+   sys<-Sys.info()
+   of1<-rbind(c(file,x$Params["model"],x$Params["behavioral.model"],x$Params["N"],x$Params["ave.degree"],x$Params["s.mem"],x$Params["initial.inf.prop"],x$Params["R0.pop"],x$Params["R0.pop"],x$Params["gamma"],x$Params["total.flu.seasons"],x$Params["eff"],x$Params["added.RMCN"],date()))
+   colnames(of1)<-cnams
+   write.table(file=loc,of1,sep=",",append=append,col.names=!append,row.names=FALSE)
+}
+
+load.nirm<-function(x,output.dir="Temp",what="all"){
+   if(class(x)!="nirm"){stop("Not a nirm object.")}
+   rex<-strsplit(x$File,"_")[[1]][length(strsplit(x$File,"_")[[1]])]
+   if(what=="all"){
+      flist<-dir(paste(output.dir,"Output","Dynamics","",sep=ifelse(tolower(Sys.info()["sysname"])=="windows","\\","/")))
+      load(paste(output.dir,"Output","Dynamics",flist[grep(rex,flist)],sep=ifelse(tolower(Sys.info()["sysname"])=="windows","\\","/")),.GlobalEnv)
+      flist<-dir(paste(output.dir,"Output","Networks","",sep=ifelse(tolower(Sys.info()["sysname"])=="windows","\\","/")))
+      load(paste(output.dir,"Output","Networks",flist[grep(rex,flist)],sep=ifelse(tolower(Sys.info()["sysname"])=="windows","\\","/")),.GlobalEnv)
+      return(print(paste("Loaded all files associated with model",rex,sep=" ")))
+   }
+   if(what=="network"){
+     flist<-dir(paste(output.dir,"Output","Networks","",sep=ifelse(tolower(Sys.info()["sysname"])=="windows","\\","/")))
+     load(paste(output.dir,"Output","Networks",flist[grep(rex,flist)],sep=ifelse(tolower(Sys.info()["sysname"])=="windows","\\","/")),.GlobalEnv)
+      return(print(paste("Loaded network files associated with model",rex,sep=" ")))
+   }
+   if(what=="dynamics"){
+     flist<-dir(paste(output.dir,"Output","Dynamics","",sep=ifelse(tolower(Sys.info()["sysname"])=="windows","\\","/")))
+     load(paste(output.dir,"Output","Dynamics",flist[grep(rex,flist)],sep=ifelse(tolower(Sys.info()["sysname"])=="windows","\\","/")),.GlobalEnv)
+      return(print(paste("Loaded dynamics files associated with model",rex,sep=" ")))
+   }
+}
+
+analyze.nirm<-function(m1,output.dir="Temp",verbose=TRUE){
+load.nirm(m1,output.dir=output.dir)
+
+#Collect what we need from nirm object
+rex<-strsplit(m1$File,"_")[[1]][length(strsplit(m1$File,"_")[[1]])]
+output.analysis.dir<-paste(output.dir,"Analysis","",sep=ifelse(tolower(Sys.info()["sysname"])=="windows","\\","/"))
+output.figure.dir<-paste(output.dir,"Figure","",sep=ifelse(tolower(Sys.info()["sysname"])=="windows","\\","/"))
+output.file.name<-paste("Analysis",rex,sep=".")
+
+for(y in 1:length(names(m1$Params[which(!names(m1$Params)%in%c("model","behavioral.model"))]))){
+assign(names(m1$Params[which(!names(m1$Params)%in%c("model","behavioral.model"))])[y],as.numeric(m1$Params[which(!names(m1$Params)%in%c("model","behavioral.model"))])[y],.GlobalEnv)
+}
+
+for(y in 1:length(names(m1$Params[which(names(m1$Params)%in%c("model","behavioral.model"))]))){
+assign(names(m1$Params[which(names(m1$Params)%in%c("model","behavioral.model"))])[y],as.character(m1$Params[which(names(m1$Params)%in%c("model","behavioral.model"))])[y],.GlobalEnv)
+}
+
+#Clean up with garbage collection 
+# (we don't need this anymore and we could use the memory)
+rm(m1)
+gc()
+
+####Analysis
+### Cluster, Degree and knn analysis.
+g.cluster <- clusters(g.PTN)
+g.k       <- degree(g.PTN)
+dist.g    <- degree.distribution(g.PTN, cumulative = FALSE)
+g.knn     <- graph.knn(g.PTN)$knn
+g.knnk    <- graph.knn(g.PTN)$knnk
+
+### Split the degree into 5 groups from low (1) to high (5) degree.
+split.g.k <- split.degree.groups(g.k,5)
+quan.g.k <- split.g.k$quan.g.k
+g.k.cat  <- split.g.k$g.k.cat
+g.k.label <- split.g.k$g.k.label
+
+### stats on k dist.
+ave.d <- mean(g.k)
+ave.d2 <- mean((g.k)^2)
+var.d <- var(g.k)
+
+### Sanity check to check that R0 and T are what is expected
+### for the case of an uncorrelated network
+T <- R0.pref /ave.d
+Theta.PTN <- T*(ave.d2-ave.d)/ave.d  
+pc.PTN <- 1-1/Theta.PTN
+
+ave.knn <- mean(g.knn)
+var.knn <- var(g.knn)
+
+PTN.stats <- list(g.cluster=g.cluster,g.k=g.k,dist.g=dist.g,g.knn=g.knn,g.knnk=g.knnk,
+                  split.g.k=split.g.k,quan.g.k=quan.g.k,g.k.cat=g.k.cat,ave.d=ave.d,
+                  ave.d2=ave.d2,var.d=var.d,T=T,Theta.PTN=Theta.PTN,pc.PTN=pc.PTN,
+                  ave.knn=ave.knn,var.knn=var.knn)
+
+#############################################################
+###                                                       ###
+###             COMPUTE AVERAGE DYNAMICS                  ###
+###                                                       ###
+#############################################################
+
+if(verbose) print(":: ANALYZE: COMPUTE AVERAGE DYNAMICS ::")
+
+coverage <- NULL
+cuml.inc <- NULL
+sus.uninf <- NULL
+
+Dyn <- data.frame(NULL)
+w.summary <- data.frame(NULL)
+
+for(flu.season in 1:total.flu.seasons){
+  Dyn <- rbind(Dyn,c(
+    flu.season,  
+    sum(seasonal.output[[flu.season]]$states[,"sus"])/N,
+    sum(seasonal.output[[flu.season]]$states[,"vacc"])/N,
+    sum(seasonal.output[[flu.season]]$states[,"vaccinf"])/N,
+    sum(seasonal.output[[flu.season]]$states[,"inf"])/N ))
+    w.summary <- rbind(w.summary,c(flu.season,  
+                  mean(seasonal.output[[flu.season]]$states[,"w"]),
+                  sqrt(var(seasonal.output[[flu.season]]$states[,"w"]))))
+}
+colnames(w.summary)<- c("year","w","w.sd")
+colnames(Dyn) <- c("year","s","p","vi","nvi")
+Dyn <- cbind(Dyn, i = Dyn$vi+Dyn$nvi)
+
+
+#############################################################
+###                                                       ###
+###               QUICK CLUSTER ANALYSIS                  ###
+###                                                       ###
+#############################################################
+
+if(verbose) print(":: ANALYZE: QUICK CLUSTER ANALYSIS ::")
+
+quick.cluster.analysis <- Quick.cluster.analysis(seasonal.output,total.flu.seasons)
+
+#############################################################
+###                                                       ###
+###                   PERIOD ANALYSIS                     ###
+###                                                       ###
+#############################################################
+
+if(verbose) print(":: ANALYZE: PERIOD ANALYSIS ::")
+
+remove.transiet <- 20
+peak.threshold <- 0.7
+periods.to.peaks <- get.times.between.spikes(Dyn$i,th=peak.threshold,remove.transiet= remove.transiet)
+
+peak.years <- 2+cumsum(periods.to.peaks)+remove.transiet
+
+
+mean.periods.to.peaks <- mean(periods.to.peaks)
+var.periods.to.peaks  <- var(periods.to.peaks)
+
+Period.stats <- list(remove.transiet=remove.transiet,periods.to.peaks=periods.to.peaks,
+                     mean.periods.to.peaks=mean.periods.to.peaks,var.periods.to.peaks=var.periods.to.peaks,
+                     peak.threshold=peak.threshold,peak.years=peak.years)
+
+#############################################################
+###                                                       ###
+###                  SWITCHING RATES                      ###
+###                                                       ###
+#############################################################
+
+if(verbose) print(":: ANALYZE: SWITCHING RATES ::")
+
+Switch.Rate <- Switch.Behavior.Rate.Analysis(seasonal.output,g.k,remove.transiet=1)
+
+#############################################################
+###                                                       ###
+###              ANALYSE THE w DISTRIBUTION               ###
+###                                                       ###
+#############################################################
+
+if(verbose) print(":: ANALYZE: w DISTRIBUTION ::")
+
+w.distrubution.tables <- w.distrubution.analysis(seasonal.output,
+                        total.flu.seasons,g.k.cat,g.k.label,num.breaks=50,plot=FALSE)
+
+
+#############################################################
+###                                                       ###
+###         MEASURE CORRELATIONS IN SPACE AND TIME         ###
+###                                                       ###
+#############################################################
+
+if(verbose) print(":: ANALYZE: MEASURE CORRELATIONS IN SPACE AND TIME ::")
+
+correlations <- Correlation.Analyses(g.PTN,g.k,g.knn,seasonal.output,flu.season,total.flu.seasons=total.flu.seasons)
+nn.like.with.like <- nn.like.with.like.analysis(g.PTN,g.k,Dyn,seasonal.output,total.flu.seasons=total.flu.seasons)
+
+#############################################################
+###                                                       ###
+###                   SAVE THE ANALYSIS                   ###
+###                                                       ###
+#############################################################
+
+if(verbose) print(":: ANALYZE: SAVING ::")
+
+save(params.of.model,PTN.stats,percolation.analisis,Dyn,w.summary,
+     quick.cluster.analysis,
+     Period.stats,Switch.Rate,w.distrubution.tables,correlations,
+     nn.like.with.like, 
+     file = paste(output.analysis.dir,output.file.name,sep=""),compress="xz")
+
+}
+
+
+percolation.nirm<-function(m1,new=FALSE,perc.file=NULL,output.dir="Temp",mc.perc.runs=100,verbose=TRUE,seed=55279,plot=TRUE,...){
+
+if(!new){
+   if(is.null(perc.file) | file.exists(perc.file)==FALSE){stop("Percolation R-Object File Not Found.")}
+   load(perc.file)
+}
+
+#############################################################
+###                                                       ###
+###              Percoloation Analysis                    ###
+###                                                       ###
+#############################################################
+load.nirm(m1,output.dir=output.dir)
+
+#Collect what we need from nirm object
+rex<-strsplit(m1$File,"_")[[1]][length(strsplit(m1$File,"_")[[1]])]
+output.analysis.dir<-paste(output.dir,"Analysis","",sep=ifelse(tolower(Sys.info()["sysname"])=="windows","\\","/"))
+output.figure.dir<-paste(output.dir,"Figure","",sep=ifelse(tolower(Sys.info()["sysname"])=="windows","\\","/"))
+output.file.name<-paste("Percolation",rex,sep=".")
+
+for(y in 1:length(names(m1$Params[which(!names(m1$Params)%in%c("model","behavioral.model"))]))){
+assign(names(m1$Params[which(!names(m1$Params)%in%c("model","behavioral.model"))])[y],as.numeric(m1$Params[which(!names(m1$Params)%in%c("model","behavioral.model"))])[y],.GlobalEnv)
+}
+
+for(y in 1:length(names(m1$Params[which(names(m1$Params)%in%c("model","behavioral.model"))]))){
+assign(names(m1$Params[which(names(m1$Params)%in%c("model","behavioral.model"))])[y],as.character(m1$Params[which(names(m1$Params)%in%c("model","behavioral.model"))])[y],.GlobalEnv)
+}
+
+#Clean up with garbage collection 
+# (we don't need this anymore and we could use the memory)
+rm(m1)
+gc()
+
+####Analysis
+### Cluster, Degree and knn analysis.
+g.cluster <- clusters(g.PTN)
+g.k       <- degree(g.PTN)
+dist.g    <- degree.distribution(g.PTN, cumulative = FALSE)
+g.knn     <- graph.knn(g.PTN)$knn
+g.knnk    <- graph.knn(g.PTN)$knnk
+
+### Split the degree into 5 groups from low (1) to high (5) degree.
+split.g.k <- split.degree.groups(g.k,5)
+quan.g.k <- split.g.k$quan.g.k
+g.k.cat  <- split.g.k$g.k.cat
+g.k.label <- split.g.k$g.k.label
+
+### stats on k dist.
+ave.d <- mean(g.k)
+ave.d2 <- mean((g.k)^2)
+var.d <- var(g.k)
+
+### Sanity check to check that R0 and T are what is expected
+### for the case of an uncorrelated network
+T <- R0.pref /ave.d
+Theta.PTN <- T*(ave.d2-ave.d)/ave.d  
+pc.PTN <- 1-1/Theta.PTN
+
+ave.knn <- mean(g.knn)
+var.knn <- var(g.knn)
+
+if(new){
+  models <- c("erdos.renyi.game","NW.watts.strogatz.game","barabasi.game")
+  model<-models[grep(tolower(model),tolower(models))]
+
+p.seq <- c(0:mc.perc.runs)/mc.perc.runs
+#p.seq <- c(0:10)/10
+
+### list of nearest neighbours (nn) on the static Social Network. 
+nn.list.PTN <- get.nn.list.of.SN(g.PTN)
+N.nn <- degree(g.PTN)
+
+
+### Do Theoretical Percolation Analysis 
+Theta.PTN <- R0.pref*(mean(N.nn^2)-mean(N.nn))/mean(N.nn)^2
+pc.PTN <- 1-1/Theta.PTN
+
+
+### Do Theoretical Percolation Analysis 
+Theta.PTN <- R0.pref*(mean(N.nn^2)-mean(N.nn))/mean(N.nn)^2
+pc.PTN <- 1-1/Theta.PTN
+percolation.analisis <- list(Theta.PTN=Theta.PTN,pc.PTN=pc.PTN)
+
+set.seed(seed)
+  q.table.random <- SIR.Prob.Infection.Table(model=model,N=N,ave.degree=ave.degree,R0.pref,R0.pop,eff=eff,p.seq=p.seq, 
+                                             mc.perc.runs=mc.perc.runs,
+                                             added.RMCN=added.RMCN,preferential=FALSE,verbose=verbose)
+  
+  q.table.preferential <- SIR.Prob.Infection.Table(model=model,N=N,ave.degree=ave.degree,R0.pref,R0.pop,eff=eff,p.seq=p.seq, 
+                                                   mc.perc.runs=mc.perc.runs,
+                                                   added.RMCN=added.RMCN,preferential=TRUE,verbose=verbose)
+  
+  
+  percolation.analisis <- list(Theta.PTN=Theta.PTN,pc.PTN=pc.PTN, q.table.random=q.table.random,
+                               q.table.preferential=q.table.preferential,
+                               R0.pref=R0.pref,R0.pop=R0.pop,eff=eff,
+                               p.seq= p.seq, mc.perc.runs=mc.perc.runs,added.RMCN=added.RMCN)
+}
+save(N,phi,N.nn,nn.list.PTN,percolation.analisis, file = paste(output.analysis.dir,output.file.name,sep=""),compress="xz")
+
+if(plot==TRUE){
+pdf(paste(output.figure.dir,output.file.name,".pdf",sep=""),pointsize=20,width=10,height=10)
+par(lwd=2)
+xax<-unlist(lapply(seasonal.output,function(x) sum(x[[1]][,"vacc"])/N))
+Inc.net<-unlist(lapply(seasonal.output,function(x) sum(x[[1]][,"inf"])/N))
+
+plot(percolation.analisis$q.table.random$q.table.Inc$'50%'~percolation.analisis$q.table.random$q.table.Inc$p,type="l",lty=3,ylab="Proportion Infected",xlab="Proportion Vaccinated",cex=3,...)
+segments(y0=percolation.analisis$q.table.random$q.table.Inc$'15.8%',y1=percolation.analisis$q.table.random$q.table.Inc$'84.2%',x0=percolation.analisis$q.table.random$q.table.Inc$p,x1=percolation.analisis$q.table.random$q.table.Inc$p)
+
+points(y=Inc.net,x=xax,pch=19)
+try(points(supsmu(y=Inc.net[-which(Inc.net<.005)],x=xax[-which(Inc.net<.005)]),type="l"),silent=TRUE)
+
+legend("topright",c("Random Model","Network Model"),lty=c(3,1),bty="n")
+
+dev.off()
+
+   }
+}
+
+
+set.behavioral.model<-function(Behavioral.Model,params.of.model,behavioral.weights,Personal.Delta,Stiffness,names.outcomes,verbose,model.specs,nirm.env){
+   if(Behavioral.Model=="USBM" || is.null(Behavioral.Model)){return(print("Using User-Supplied Behavioral Model"))}
+   beh.env<-environment()
+   ### The Global.Vacc.Delta.Threshold calls pc.PTN. We need to construct this 
+   ### here because it is not a priori in the code. --- CSM & ARJ --- 18 July 2012
+   g.PTN<-get("g.PTN",envir=nirm.env)
+   R0.pref<-get("R0.pref",envir=nirm.env)
+   N.nn <- degree(g.PTN)
+   Theta.PTN <- R0.pref * (mean(N.nn^2) - mean(N.nn))/mean(N.nn)^2
+   pc.PTN <- 1 - 1/Theta.PTN
+
+   #BEH MODELS HERE
+
+#############################################################
+###                                                       ###
+###           VACCINATION BEHAVIORAL MODELS               ###
+###                                                       ###
+#############################################################
+
+if(verbose) print(":: SPECIFING THE VACCINATION BEHAVIORAL MODEL ::")
+
+if(Behavioral.Model=="Original_Personal"){
+  
+  ### This model uses the function Global.Vacc.Delta.Threshold in Evolve.Dynamics
+  ### when computing the Global.Vacc.Delta
+  behavioral.weights[c("VaccInf","Inf","UnInf"),"Personal"] <- 1
+  behavioral.weights[c("Vacc"),"Global.Vacc"] <- 1
+  Personal.Delta[names.outcomes] <- c(0,0.5,1,0) 
+  
+  Stiffness[names.outcomes] <- rep(0,length(names.outcomes))
+  
+  get.Local.Inf.Delta <- function(x)  {return(x)}
+  get.Local.Vacc.Delta <- function(x) {return(x)}  
+  get.Global.Inf.Delta <- function(x) {return(x)}
+  get.Global.Vacc.Delta <- function(x){Global.Vacc.Delta.Threshold(x,pc.PTN)}
+  
+  model.specs <- c(model.specs,Behavioral.Model=Behavioral.Model)
+  
+  params.of.model <- c(params.of.model,
+                       Personal.Delta=Personal.Delta,Stiffness=Stiffness)  
+}
+
+if(Behavioral.Model=="Simple_Personal"){
+  behavioral.weights[c("VaccInf","Inf","UnInf"),"Personal"] <- 1
+  behavioral.weights[c("Vacc"),"Global.Inf"] <- 1
+  Personal.Delta[names.outcomes] <- c(0,0.5,1,0) 
+  
+  Stiffness[names.outcomes] <- rep(0,length(names.outcomes))
+  
+  get.Local.Inf.Delta <- function(x)  {return(x)}
+  get.Local.Vacc.Delta <- function(x) {return(x)}  
+  get.Global.Inf.Delta <- function(x) {return(x)}
+  get.Global.Vacc.Delta <- function(x) {return(x)}
+  
+  model.specs <- c(model.specs,Behavioral.Model=Behavioral.Model)
+  
+  params.of.model <- c(params.of.model,
+                       Personal.Delta=Personal.Delta,Stiffness=Stiffness)
+  
+}
+
+
+if(Behavioral.Model=="Simple_Local"){
+  behavioral.weights[c("VaccInf","Inf"),"Personal"] <- 1
+  behavioral.weights[c("Vacc"),"Local.Inf"] <- 1
+  behavioral.weights[c("UnInf"),c("Personal","Local.Inf")] <- 0.5
+  
+  Personal.Delta[names.outcomes] <- c(0,0.5,1,0) 
+  
+  Stiffness[names.outcomes] <- rep(0,length(names.outcomes))
+  
+  get.Local.Inf.Delta <- function(x)  {return(x)}
+  get.Local.Vacc.Delta <- function(x) {return(x)}  
+  get.Global.Inf.Delta <- function(x) {return(x)}
+  get.Global.Vacc.Delta <- function(x) {return(x)}
+  
+  model.specs <- c(model.specs,Behavioral.Model=Behavioral.Model)
+  
+  params.of.model <- c(params.of.model,
+                       Personal.Delta=Personal.Delta,Stiffness=Stiffness)
+  
+}
+
+
+   #Send the model back to the nirm environment
+   for(i in 1:length(ls(envir=beh.env))){
+      assign(ls(envir=beh.env)[i],get(ls(envir=beh.env)[i]),envir=nirm.env)
+   }
+}
+
+   #FUNCTIONS HERE
+
+all.to.all.game <-
+function (N) 
+{
+    return(erdos.renyi.game(N, 1))
+}
+assign.global.parametes <-
+function (dummy, type) 
+{
+    rr <- NULL
+    if (type == "num") {
+        for (ii in 1:length(names(dummy))) {
+            rr <- c(rr, parse(text = paste(names(dummy[ii]), 
+                "<- as.numeric(", deparse(substitute(dummy)), 
+                "[", as.character(ii), "])", sep = "")))
+        }
+    }
+    else {
+        for (ii in 1:length(names(dummy))) {
+            rr <- c(rr, parse(text = paste(names(dummy[ii]), 
+                "<- ", deparse(substitute(dummy)), "[", as.character(ii), 
+                "]", sep = "")))
+        }
+    }
+    return(rr)
+}
+BA.scale.free.game <-
+function (size, ave.degree) 
+{
+    g1 <- simplify(barabasi.game(n = size, power = 1, m = ave.degree/2, 
+        directed = FALSE))
+    return(g1)
+}
+Change.Vacc.Prob <-
+function (g, s.mem, eps, kappa.nn, delta, normalizing.factor, 
+    nn.list.SN) 
+{
+    V(g)$V <- s.mem * V(g)$V + delta
+    V(g)$w <- eps * V(g)$w + (1 - eps) * V(g)$V/normalizing.factor
+    if (kappa.nn > 1 | kappa.nn < 0) 
+        stop("kappa out of range")
+    if (kappa.nn < 1) {
+        V(g)$ave.nn.w <- unlist(lapply(nn.list.SN, get.ave.X.over.nn, 
+            X.values = V(g)$w))
+        V(g)$w <- kappa.nn * V(g)$w + (1 - kappa.nn) * V(g)$ave.nn.w
+    }
+    return(g)
+}
+Copy.All.Vertex.Attributes <-
+function (g.to, g.from) 
+{
+    for (i in list.vertex.attributes(g.from)) {
+        g.to <- set.vertex.attribute(g.to, i, index = V(g.to), 
+            get.vertex.attribute(g.from, i, index = V(g.from)))
+    }
+    return(g.to)
+}
+Correlation.Analyses <-
+function (g, g.k, g.knn, seasonal.output, flu.season, total.flu.seasons) 
+{
+    corr <- data.frame(NULL)
+    for (flu.season in 1:total.flu.seasons) {
+        w <- seasonal.output[[flu.season]]$states[, "w"]
+        pop <- seasonal.output[[flu.season]]$states[, c("sus", 
+            "vacc", "vaccinf", "inf")]
+        vacc.samp <- as.logical(pop[, "vacc"])
+        non.vacc.samp <- as.logical(pop[, "sus"] | pop[, "inf"])
+        pop <- cbind(pop, non.vacc = non.vacc.samp)
+        g.sub <- get.exposed.network(g, non.vacc.samp)
+        g.sub.cluster <- clusters(g.sub)
+        g.sub.k <- degree(g.sub)
+        dist.g.sub <- degree.distribution(g.sub, cumulative = FALSE)
+        g.sub.knn <- graph.knn(g.sub)
+        k.sub_k <- map.to.full.g(non.vacc.samp, g.sub.k, 0)/g.k
+        knn.sub_knn <- map.to.full.g(non.vacc.samp, g.sub.knn$knn, 
+            0)/g.knn
+        g.info <- cbind(g.k = g.k, g.knn = g.knn, k.sub_k = k.sub_k, 
+            knn.sub_knn = knn.sub_knn)
+        corr.year <- do.w.k.correlation(pop, g.info, w, "full")
+        corr <- rbind(corr, corr.year)
+    }
+    colnames(corr) <- names(corr.year)
+    return(corr)
+}
+do.w.k.correlation <-
+function (x, y, w, add.char = NULL) 
+{
+    R <- NULL
+    names.x <- colnames(x)
+    names.y <- colnames(y)
+    names.R <- NULL
+    if (!is.null(add.char)) 
+        add.char <- paste("_", add.char, sep = "")
+    for (nx in names.x) {
+        samp <- as.logical(x[, nx])
+        w.samp <- w[samp]
+        for (ny in names.y) {
+            y.samp <- y[samp, ny]
+            cor.out <- NA
+            if (length(samp) > 0) 
+                cor.out <- cor(w.samp, y.samp)
+            R <- c(R, cor.out)
+            names.R <- c(names.R, paste("cor_", nx, "_", ny, 
+                add.char, sep = ""))
+        }
+    }
+    names(R) <- names.R
+    return(R)
+}
+generate.distribution <-
+function (x) 
+{
+    dummy <- table(x)
+    dummy <- dummy/sum(dummy)
+    mm <- max(as.numeric(names(dummy)))
+    dummy.range <- 1:mm
+    dummy.table <- rep(0, mm)
+    dummy.table[as.numeric(names(dummy))] <- dummy
+    return(dummy.table)
+}
+generate.knnk <-
+function (tab, samp) 
+{
+    split.tab <- split(tab[samp, ], as.factor(tab[samp, "d"]))
+    knnk <- sapply(split.tab, mean)["knn", ]
+    mm <- max(as.numeric(names(knnk)))
+    rr <- 1:mm
+    r <- rep(NaN, mm)
+    r[as.numeric(names(knnk))] <- as.numeric(knnk)
+    return(r)
+}
+get.Active.Transmission.Network <-
+function (g, R0) 
+{
+    n.bonds <- length(E(g))
+    n.verticies <- g[[1]]
+    T.bond <- get.T.bond(R0, 2 * n.bonds/n.verticies)
+    active.bonds.samp <- (runif(n.bonds, 0, 1) <= T.bond)
+    g.sub <- delete.edges(g, E(g)[!active.bonds.samp])
+    return(g.sub)
+}
+get.ave.X.over.nn <-
+function (nn.list.element, X.values) 
+{
+    return(mean(X.values[nn.list.element + 1]))
+}
+get.exposed.network <-
+function (g, x) 
+{
+    if (is.logical(x)) 
+        x <- get.person.IDs(g, x)
+    return(subgraph(g, x))
+}
+Get.Infected.ID.from.sub.g <-
+function (g, s.samp.in.g, inf.samp.in.g.sub) 
+{
+    Map.g.sub <- cbind(g = get.person.IDs(g), g.sub = NA)
+    Map.g.sub[s.samp.in.g, "g.sub"] <- c(1:sum(s.samp.in.g)) - 
+        1
+    infected.in.g.sub <- get.person.IDs(g, inf.samp.in.g.sub)
+    infected.in.g <- Map.g.sub[Map.g.sub[, "g.sub"] %in% infected.in.g.sub, 
+        "g"]
+    return(infected.in.g)
+}
+Get.Infected.samp.from.sub.g <-
+function (g, s.samp.in.g, inf.samp.in.g.sub) 
+{
+    Map.g.sub <- cbind(g = get.person.IDs(g), g.sub = NA)
+    Map.g.sub[s.samp.in.g, "g.sub"] <- c(1:sum(s.samp.in.g)) - 
+        1
+    infected.in.g.sub <- get.person.IDs(g, inf.samp.in.g.sub)
+    infected.samp <- (Map.g.sub[, "g.sub"] %in% infected.in.g.sub)
+    return(infected.samp)
+}
+get.likelihood.surrounded.by.similars <-
+function (samp, normalizied.wrt, g, g.k = NULL) 
+{
+    if (is.null(g.k)) 
+        g.k <- degree(g)
+    g.k.samp <- g.k[samp]
+    g.sub <- get.exposed.network(g, samp)
+    g.k.sub <- degree(g.sub)
+    x <- g.k.sub/g.k.samp
+    m <- mean(x)/normalizied.wrt
+    s <- sd(x)/normalizied.wrt
+    return(c(mean = m, sd = s))
+}
+get.nn.list.of.SN <-
+function (g, k = 1) 
+{
+    x <- neighborhood(g, order = k, nodes = V(g))
+    r <- lapply(x, FUN = function(y) return(y[-1]))
+    return(r)
+}
+get.num.nn.with.att <-
+function (x, att.samp) 
+{
+    num.positives <- sum(att.samp[x + 1])
+    return(num.positives)
+}
+get.person.IDs <-
+function (g, samp = TRUE) 
+{
+    return(V(g)[samp])
+}
+get.T.bond <-
+function (R0, ave_k) 
+{
+    T <- R0/ave_k
+    if (R0 > ave_k) 
+        T <- 1
+    return(T)
+}
+get.times.between.spikes <-
+function (time.series, th = 0.7, remove.transiet = 20) 
+{
+    x <- diff(time.series[-c(1:remove.transiet)])
+    threshold <- th * max(x)
+    length.time.series <- length(x)
+    peaks <- c(1:length.time.series)[x > threshold]
+    intervals.between.peaks <- diff(peaks)
+    return(intervals.between.peaks)
+}
+Global.Vacc.Delta.Threshold <-
+function (p, p_c) 
+{
+    if (p < p_c) {
+        return(1)
+    }
+    return(0)
+}
+graph.union.plus.attributes <-
+function (g.att, g.no.att) 
+{
+    g <- graph.union(g.att, g.no.att)
+    for (i in list.vertex.attributes(g.att)) {
+        g <- set.vertex.attribute(g, i, index = V(g), get.vertex.attribute(g.att, 
+            i, index = V(g.att)))
+    }
+    return(g)
+}
+Initialize.All.Vertex.Attributes <-
+function (g, attributes.data) 
+{
+    for (i in colnames(attributes.data)) {
+        g <- set.vertex.attribute(g, i, index = V(g), attributes.data[, 
+            i])
+    }
+    return(g)
+}
+map.to.full.g <-
+function (samp, v.g.sub, v.not.g.sub) 
+{
+    N <- length(samp)
+    R <- v.not.g.sub * c(1:N)
+    R[samp] <- v.g.sub
+    return(R)
+}
+nn.like.with.like.analysis <-
+function (g, g.k, Dyn, seasonal.output, total.flu.seasons) 
+{
+    corr <- data.frame(NULL)
+    VV.likely <- data.frame(NULL)
+    SS.likely <- data.frame(NULL)
+    for (flu.season in 1:total.flu.seasons) {
+        pop <- seasonal.output[[flu.season]]$states[, c("sus", 
+            "vacc", "vaccinf", "inf")]
+        vacc.samp <- as.logical(pop[, "vacc"])
+        non.vacc.samp <- as.logical(pop[, "sus"] | pop[, "inf"])
+        VV.likely <- rbind(VV.likely, get.likelihood.surrounded.by.similars(vacc.samp, 
+            (Dyn[flu.season, "p"]), g, g.k))
+        SS.likely <- rbind(SS.likely, get.likelihood.surrounded.by.similars(non.vacc.samp, 
+            (1 - Dyn[flu.season, "p"]), g, g.k))
+    }
+    colnames(SS.likely) <- c("mean", "sd")
+    colnames(VV.likely) <- c("mean", "sd")
+    return(list(SS.likely = SS.likely, VV.likely = VV.likely))
+}
+NW.watts.strogatz.game <-
+function (dimension, size, nei, phi) 
+{
+    g1 <- erdos.renyi.game(N, 2 * phi * nei/(size - 1))
+    g2 <- simplify(watts.strogatz.game(dim = dimension, size = size, 
+        nei = round(nei * (1 - phi), 0), 0))
+    g3 <- simplify(graph.union(g1, g2))
+    return(g3)
+}
+plot.Global.Dynamics <-
+function (Dyn, file.name = NULL, title = NULL, legend = NULL, 
+    height = 6, width = 12) 
+{
+    col.seq <- c("lightblue", "palevioletred", "darkgreen")
+    plot(Dyn$year, Dyn$s, xlab = "year", ylab = "p", main = title, 
+        ylim = c(0, 1), type = "l", col = col.seq[1], lwd = 3, 
+        cex = 1, cex.axis = 1, cex.lab = 1, cex.main = 1)
+    points(Dyn$year, Dyn$i, type = "l", col = col.seq[2], lwd = 3)
+    points(Dyn$year, Dyn$p, type = "l", col = col.seq[3], lwd = 3)
+    grid(5, 5, col = "lightgray", lty = "dotted", lwd = par("lwd"), 
+        equilogs = TRUE)
+    if (!is.null(legend)) {
+        labels <- c("s: uninfected", "i: infected", "p: coverage")
+        legend(Dyn[nrow(Dyn), "year"] * 0.8, 1, labels, lwd = 3, 
+            col = col.seq, text.width = 0.4, border = NULL)
+    }
+    if (!is.null(file.name)) {
+        dev.copy(pdf, file.name, height = height, width = width)
+        dev.off()
+    }
+    return(NULL)
+}
+plot.individual.w.dyn <-
+function (seasonal.output, N, focus.years = c(10, 40, 80), file.name = NULL, 
+    height = 4, width = 8) 
+{
+    if (length(focus.years) != 3) {
+        stop("plot.individual.w.dyn problem with focus.years input")
+    }
+    lower <- focus.years[1]
+    mid <- focus.years[2]
+    upper <- focus.years[3]
+    years <- c(lower:upper)
+    temp <- cbind(c(1:N), seasonal.output[[lower]]$states[, "w"], 
+        seasonal.output[[mid]]$states[, "w"], seasonal.output[[upper]]$states[, 
+            "w"])
+    xx <- subset(temp, temp[, 2] < 0.01 & temp[, 3] > 0.99 & 
+        temp[, 4] < 0.01)
+    yy <- subset(temp, temp[, 2] > 0.98 & temp[, 3] < 0.01 & 
+        temp[, 4] > 0.99)
+    if (length(xx) * length(yy) < 1) {
+        stop("plot.individual.w.dyn no one found with specified tolerance")
+    }
+    id1 <- xx[1, 1]
+    id2 <- yy[1, 1]
+    w1 <- sapply(seasonal.output, FUN = function(x, pos) {
+        x$states[pos, "w"]
+    }, pos = id1)
+    w2 <- sapply(seasonal.output, FUN = function(x, pos) {
+        x$states[pos, "w"]
+    }, pos = id2)
+    plot(years, w1[years], xlab = "year", ylab = expression(w^(i)), 
+        main = NULL, ylim = c(0, 1), type = "l", col = "darkgreen", 
+        lwd = 3, cex = 1, cex.axis = 1, cex.lab = 1, cex.main = 1)
+    points(years, w2[years], type = "l", col = "brown", lwd = 3)
+    if (!is.null(fil.name)) {
+        dev.copy(pdf, file.name, height = height, width = width)
+        dev.off()
+    }
+    return(NULL)
+}
+plot.Percolation.Analysis <-
+function (percolation.analisis, file.name = NULL, title = NULL, 
+    Dyn = NULL, seg = FALSE, height = 6, width = 7.5) 
+{
+    col.seq <- c("red", "blue", "darkgreen")
+    x <- cbind(percolation.analisis$p.seq, SIR.ODE(times = seq(1, 
+        200, 0.1), percolation.analisis$p.seq, percolation.analisis$R0.pref, 
+        N))
+    plot(x[, 1], x[, 2], xlab = "p", ylab = "q(p)", main = title, 
+        xlim = c(0.5, 0.62), ylim = c(0, 0.2), type = "l", col = col.seq[1], 
+        lwd = 5, cex = 1, cex.axis = 1, cex.lab = 1, cex.main = 1)
+    x <- percolation.analisis$q.table.random
+    points(x[, "p"], x[, "q(p)"], type = "l", col = col.seq[2], 
+        lwd = 3)
+    if (seg) {
+        x3R <- sqrt(smooth(x[, "Var[q(p)]"], "3R"))
+        segments(x[, "p"], x[, "q(p)"], x1 = x[, "p"], y1 = x[, 
+            "q(p)"] + x3R, col = col.seq[2], lwd = 1.5)
+        segments(x[, "p"], x[, "q(p)"], x1 = x[, "p"], y1 = x[, 
+            "q(p)"] - x3R, col = col.seq[2], lwd = 1.5)
+    }
+    x <- percolation.analisis$q.table.preferential
+    points(x[, "p"], x[, "q(p)"], type = "l", col = col.seq[3], 
+        lwd = 3)
+    if (seg) {
+        x3R <- sqrt(smooth(x[, "Var[q(p)]"], "3R"))
+        segments(x[, "p"], x[, "q(p)"], x1 = x[, "p"], y1 = x[, 
+            "q(p)"] + x3R, col = col.seq[2], lwd = 1.5)
+        segments(x[, "p"], x[, "q(p)"], x1 = x[, "p"], y1 = x[, 
+            "q(p)"] - x3R, col = col.seq[2], lwd = 1.5)
+    }
+    if (is.null(Dyn)) {
+        labels <- c("SIR ODE", "random vaccination", "targeted vaccination")
+    }
+    else {
+        labels <- c("SIR ODE", "random vaccination", "targeted vaccination", 
+            "behavior")
+        col.seq <- c(col.seq, "black")
+        Dyn <- Dyn[order(Dyn$p), ]
+        points(Dyn$p, Dyn$i, type = "o", lty = 2, col = col.seq[4])
+    }
+    grid(5, 5, col = "lightgray", lty = "dotted", lwd = par("lwd"), 
+        equilogs = TRUE)
+    legend(0.55, 1, labels, lwd = 3, col = col.seq, text.width = 0.35, 
+        border = NULL)
+    if (!is.null(file.name)) {
+        dev.copy(pdf, file.name, height = height, width = width)
+        dev.off()
+    }
+    return(NULL)
+}
+plot.QCA <-
+function (quick.cluster.analysis, file.name = NULL, title = NULL, 
+    legend = NULL, height = 12, width = 12) 
+{
+    col.seq <- c("lightblue", "palevioletred", "darkgreen")
+    years <- 1:length(quick.cluster.analysis[[1]])
+    name <- names(quick.cluster.analysis)
+    par(mfrow = c(3, 1), las = 2)
+    if (!is.null(title)) 
+        title.use = paste(name[1], "_", title, sep = "")
+    if (is.null(title)) 
+        title.use = name[1]
+    plot(years, log10(quick.cluster.analysis[[1]]), xlab = "year", 
+        ylab = "p", main = title.use, type = "l", col = col.seq[3], 
+        lwd = 3, cex = 1, cex.axis = 1, cex.lab = 1, cex.main = 1)
+    if (!is.null(title)) 
+        title.use = paste(name[4], "_", title, sep = "")
+    if (is.null(title)) 
+        title.use = name[4]
+    plot(years, quick.cluster.analysis[[4]], xlab = "year", ylab = "p", 
+        ylim = c(0, 1), main = title.use, type = "l", col = col.seq[1], 
+        lwd = 3, cex = 1, cex.axis = 1, cex.lab = 1, cex.main = 1)
+    points(years, quick.cluster.analysis[[5]], col = col.seq[2], 
+        type = "l", lwd = 3)
+    if (!is.null(title)) 
+        title.use = paste(name[2], "_", title, sep = "")
+    if (is.null(title)) 
+        title.use = name[2]
+    plot(years, quick.cluster.analysis[[2]], xlab = "year", ylab = "p", 
+        ylim = c(0, 1), main = title.use, type = "l", col = col.seq[1], 
+        lwd = 3, cex = 1, cex.axis = 1, cex.lab = 1, cex.main = 1)
+    points(years, quick.cluster.analysis[[3]], col = col.seq[2], 
+        type = "l", lwd = 3)
+    if (!is.null(file.name)) {
+        dev.copy(pdf, file.name, height = height, width = width)
+        dev.off()
+    }
+    return(NULL)
+}
+plot.Vacc.Prob.Dist <-
+function (dist.w, num.breaks, histo.mids, years = 1, file.name, 
+    height = 6, width = 7.5) 
+{
+    focus.year <- years[1]
+    plot(histo.mids, log(num.breaks * dist.w[focus.year, paste("w.hist", 
+        histo.mids, sep = "")], 10), type = "o", lty = 2, col = "black", 
+        pch = 18, yaxt = "n", panel.first = abline(v = c(0:5)/5, 
+            h = c(-3:1), col = "lightgray", lty = "dotted", lwd = par("lwd")), 
+        xlab = expression(w^(i)), ylab = expression(rho(w^(i))))
+    par(las = 1)
+    axis(2, at = c(-3:1), labels = c(quote(10^-3), quote(10^-2), 
+        quote(10^-1), expression(1), quote(10^1)))
+    if (length(years) > 1) {
+        for (focus.year in years[-1]) {
+            points(histo.mids, log(num.breaks * dist.w[focus.year, 
+                paste("w.hist", histo.mids, sep = "")], 10), 
+                type = "o", lty = 2, col = "darkgreen")
+        }
+    }
+    dev.copy(pdf, file.name, height = height, width = width)
+    dev.off()
+    return(NULL)
+}
+Quick.cluster.analysis <-
+function (seasonal.output, total.flu.seasons) 
+{
+    ratio.max.cluster.sizes.inf.to.sus <- NULL
+    prop.vacc.after.inf <- prop.vacc.after.inf.sd <- NULL
+    prop.vacc.those.inf <- prop.vacc.those.inf.sd <- NA
+    for (flu.season in 1:total.flu.seasons) {
+        inf <- as.logical(seasonal.output[[flu.season]]$states[, 
+            "inf"] + seasonal.output[[flu.season]]$states[, "vaccinf"])
+        sus <- as.logical(seasonal.output[[flu.season]]$states[, 
+            "sus"])
+        inf.clusters <- unique(seasonal.output[[flu.season]]$states[inf, 
+            "cluster"])
+        sus.clusters <- unique(seasonal.output[[flu.season]]$states[sus, 
+            "cluster"])
+        num.in.inf.clusters <- table(seasonal.output[[flu.season]]$states[, 
+            "cluster"])[inf.clusters + 2]
+        num.in.sus.clusters <- table(seasonal.output[[flu.season]]$states[, 
+            "cluster"])[sus.clusters + 2]
+        ratio.max.cluster.sizes.inf.to.sus <- c(ratio.max.cluster.sizes.inf.to.sus, 
+            max(num.in.inf.clusters)/max(num.in.sus.clusters))
+        prop.vacc.after.inf <- c(prop.vacc.after.inf, mean(seasonal.output[[flu.season]]$states[inf, 
+            "w"]))
+        prop.vacc.after.inf.sd <- c(prop.vacc.after.inf.sd, sd(seasonal.output[[flu.season]]$states[inf, 
+            "w"]))
+        if (flu.season > 1) {
+            prop.vacc.those.inf <- c(prop.vacc.those.inf, mean(seasonal.output[[flu.season - 
+                1]]$states[inf, "w"]))
+            prop.vacc.those.inf.sd <- c(prop.vacc.those.inf.sd, 
+                sd(seasonal.output[[flu.season - 1]]$states[inf, 
+                  "w"]))
+        }
+    }
+    quick.cluster.analysis <- list(ratio.max.cluster.sizes.inf.to.sus = ratio.max.cluster.sizes.inf.to.sus, 
+        prop.vacc.after.inf = prop.vacc.after.inf, prop.vacc.after.inf.sd = prop.vacc.after.inf.sd, 
+        prop.vacc.those.inf = prop.vacc.those.inf, prop.vacc.those.inf.sd = prop.vacc.those.inf.sd)
+    return(quick.cluster.analysis)
+}
+Regenerate.g.PTN <-
+function (model, N, ave.degree) 
+{
+    if (model == "erdos.renyi.game") {
+        phi <- ave.degree/(N - 1)
+        g.PTN <- erdos.renyi.game(N, phi)
+    }
+    if (model == "watts.strogatz.game") {
+        phi <- 0.5
+        g.PTN <- watts.strogatz.game(dim = 1, size = N, nei = round(ave.degree/2, 
+            0), phi)
+    }
+    if (model == "NW.watts.strogatz.game") {
+        phi <- 0.5
+        g.PTN <- NW.watts.strogatz.game(dim = 1, size = N, nei = round(ave.degree/2, 
+            0), phi)
+    }
+    if (model == "barabasi.game") {
+        g.PTN <- barabasi.game(n = N, power = 1, m = round(ave.degree/2, 
+            0), directed = FALSE)
+        if (test.Object.Exists(params.of.model)) 
+            params.of.model <- c(params.of.model, model = model, 
+                ave.degree = ave.degree, power = 1)
+    }
+    g.PTN <- simplify(g.PTN)
+    return(g.PTN)
+}
+SIR.ODE <-
+function (times, p.seq, R0, N) 
+{
+    Y <- NULL
+    prob <- NULL
+    for (p in p.seq) {
+        Y["S"] <- ((1 - p) * N - ifelse(p < 1, 1, 0))/N
+        Y["I"] <- ifelse(p < 1, 1, 0)/N
+        Y["R"] <- 0
+        out <- ode(Y, times, SIR.ODE.model, R0)
+        prob <- c(prob, as.numeric(out[nrow(out), "R"]))
+    }
+    return(prob)
+}
+SIR.ODE.model <-
+function (t, Y, R0) 
+{
+    S <- Y[1]
+    I <- Y[2]
+    R <- Y[3]
+    dS <- -R0 * S * I
+    dI <- R0 * S * I - I
+    dR <- I
+    return(list(c(dS = dS, dI = dI, dR = dR)))
+}
+SIR.Prob.Infection.Table <-
+function (model, N, ave.degree, R0.pref, R0.pop, eff = 1, p.seq = c(0:100)/100, 
+    mc.perc.runs = 100, added.RMCN = FALSE, preferential = FALSE, 
+    verbose = FALSE) 
+{
+    q.table <- matrix(0, nrow = length(p.seq), ncol = 12)
+    q.table <- as.data.frame(q.table)
+    rownames(q.table) <- p.seq
+    q.table2 <- q.table
+    if (verbose) {
+        print("Running SIR.Prob.Infection.Table.R")
+        if (preferential) {
+            print("Preferential/Targeted  Vaccination")
+        }
+        else {
+            print("Random  Vaccination")
+        }
+    }
+    for (p in p.seq) {
+        if (verbose) {
+            print(paste("::p=", p, sep = ""))
+        }
+        q.dummy <- NULL
+        q.dummy2 <- NULL
+        for (mc.run in 1:mc.perc.runs) {
+            g <- Regenerate.g.PTN(model, N, ave.degree)
+            if (preferential) {
+                N.nn <- degree(g)
+                N.nn.id <- cbind(1:N, N.nn)
+                N.nn.id <- N.nn.id[order(N.nn.id[, 2], decreasing = TRUE), 
+                  ]
+            }
+            g.APTN <- get.Active.Transmission.Network(g, R0.pref)
+            if (added.RMCN) {
+                T.bond <- get.T.bond(R0.pop, N)
+                g.RMCN <- erdos.renyi.game(N, T.bond)
+                g <- graph.union.plus.attributes(g.APTN, g.RMCN)
+            }
+            else {
+                g <- g.APTN
+            }
+            rm(g.APTN)
+            if (!preferential) {
+                decide.to.vacc.samp <- (runif(N, 0, 1) <= p)
+            }
+            if (preferential) {
+                decide.to.vacc.samp <- rep(FALSE, N)
+                decide.to.vacc.samp[N.nn.id[1:round(p * N, 0), 
+                  1]] <- TRUE
+            }
+            if.vacc.then.effect <- (runif(N, 0, 1) <= eff)
+            expected.vacc.coverage <- p * eff
+            vacc.samp <- decide.to.vacc.samp & if.vacc.then.effect
+            vacc.but.ineff.samp <- decide.to.vacc.samp & !if.vacc.then.effect
+            susc.samp <- !vacc.samp
+            susceptible <- get.person.IDs(g, susc.samp)
+            vaccinated <- get.person.IDs(g, vacc.samp)
+            N.vacc <- length(vaccinated)
+            g.sub <- get.exposed.network(g, susceptible)
+            N.sub <- g.sub[[1]]
+            initial.inf.samp <- (runif(N.sub, 0, 1) <= initial.inf.prop/(1 - 
+                expected.vacc.coverage))
+            initial.infected <- get.person.IDs(g.sub, initial.inf.samp)
+            g.sub.cluster <- clusters(g.sub)
+            g.sub.mem <- g.sub.cluster$membership
+            g.mem <- rep(NA, N)
+            g.mem[susc.samp] <- g.sub.mem
+            g.mem[vacc.samp] <- -1
+            IDs.of.infected.clusters <- unique(g.sub.mem[initial.infected])
+            inf.samp.in.g.sub <- (g.sub.mem %in% IDs.of.infected.clusters)
+            inf.samp <- Get.Infected.samp.from.sub.g(g, susc.samp, 
+                inf.samp.in.g.sub)
+            infected <- get.person.IDs(g, inf.samp)
+            N.inf <- length(infected)
+            q.dummy <- c(q.dummy, N.inf/N)
+            q.dummy2 <- c(q.dummy2, N.inf/(N - N.vacc))
+            susc.samp <- (susc.samp & !inf.samp)
+            rm(g.sub)
+            gc()
+        }
+        q.dummy.mean <- mean(q.dummy)
+        q.dummy.var <- var(q.dummy)
+        q.min <- min(q.dummy)
+        q.max <- max(q.dummy)
+        q.dummy.quantiles <- quantile(q.dummy, p = c(c(0:4)/4, 
+            0.022, 0.158, 1 - 0.158, 1 - 0.022), na.rm = T)
+        q.dummy.mean2 <- mean(q.dummy2)
+        q.dummy.var2 <- var(q.dummy2)
+        q.min2 <- min(q.dummy2)
+        q.max2 <- max(q.dummy2)
+        q.dummy.quantiles2 <- quantile(q.dummy2, p = c(c(0:4)/4, 
+            0.022, 0.158, 1 - 0.158, 1 - 0.022), na.rm = T)
+        q.table[as.character(p), ] <- c(p, c(mean = q.dummy.mean, 
+            var = q.dummy.var, q.dummy.quantiles))
+        q.table2[as.character(p), ] <- c(p, c(mean = q.dummy.mean2, 
+            var = q.dummy.var2, q.dummy.quantiles2))
+    }
+    colnames(q.table) <- c("p", "q(p)", "Var[q(p)]", names(q.dummy.quantiles))
+    colnames(q.table2) <- colnames(q.table)
+    q.table <- list(q.table.Inc = q.table, q.table.Sus = q.table2)
+    return(q.table)
+}
+split.degree.groups <-
+function (g.k, groups = 5) 
+{
+    quan.g.k <- quantile(g.k, prob = c(0:groups)/groups)
+    g.k.cat <- NA * g.k
+    num.cat <- (length(quan.g.k) - 1)
+    for (q in 1:num.cat) {
+        g.k.cat[(g.k < quan.g.k[q + 1] & g.k >= quan.g.k[q])] <- q
+        if (q == (num.cat)) 
+            g.k.cat[(g.k == quan.g.k[q + 1])] <- q
+    }
+    g.k.label <- NULL
+    for (i in 2:length(quan.g.k)) {
+        g.k.label <- c(g.k.label, paste("k:", as.character(quan.g.k[i - 
+            1]), "-", as.character(quan.g.k[i]), sep = ""))
+    }
+    return(list(quan.g.k = quan.g.k, g.k.cat = g.k.cat, g.k.label = g.k.label))
+}
+Switch.Behavior.Rate.Analysis <-
+function (seasonal.output, g.k, remove.transiet = 20) 
+{
+    Switch.Rate <- data.frame(NULL)
+    total.flu.seasons <- length(seasonal.output)
+    for (flu.season in (remove.transiet + 1):total.flu.seasons) {
+        V.yearago <- seasonal.output[[flu.season - 1]]$states[, 
+            "vacc"]
+        V.not.switching <- as.logical(rowSums(seasonal.output[[flu.season]]$states[as.logical(V.yearago), 
+            c("vacc", "vaccinf")]))
+        VI.yearago <- as.logical(seasonal.output[[flu.season - 
+            1]]$states[, "vaccinf"])
+        VI.not.switching <- as.logical(rowSums(seasonal.output[[flu.season]]$states[as.logical(VI.yearago), 
+            c("vacc", "vaccinf")]))
+        NV.switching <- as.logical(rowSums(seasonal.output[[flu.season]]$states[!as.logical(V.yearago), 
+            c("vacc", "vaccinf")]))
+        rate.v.v <- sum(V.not.switching)/sum(V.yearago)
+        rate.vi.v <- sum(VI.not.switching)/sum(VI.yearago)
+        rate.nv.nv <- 1 - sum(NV.switching)/sum(!V.yearago)
+        ave.k.v.v <- mean(g.k[as.logical(V.yearago)][as.logical(V.not.switching)])
+        ave.k.v.nv <- mean(g.k[as.logical(V.yearago)][!as.logical(V.not.switching)])
+        ave.k.nv.nv <- mean(g.k[!as.logical(V.yearago)][!as.logical(NV.switching)])
+        ave.k.nv.v <- mean(g.k[!as.logical(V.yearago)][as.logical(NV.switching)])
+        ave.k.vi.v <- mean(g.k[as.logical(VI.yearago)][as.logical(VI.not.switching)])
+        ave.k.vi.nv <- mean(g.k[as.logical(VI.yearago)][!as.logical(VI.not.switching)])
+        Switch.Rate <- rbind(Switch.Rate, c(rate.v.v, rate.vi.v, 
+            rate.nv.nv, ave.k.v.v, ave.k.v.nv, ave.k.nv.v, ave.k.nv.nv, 
+            ave.k.vi.v, ave.k.vi.nv))
+    }
+    colnames(Switch.Rate) <- c("rate.v.v", "rate.vi.v", "rate.nv.nv", 
+        "V.V", "V.NV", "NV.V", "NV.NV", "VI.V", "VI.NV")
+    rownames(Switch.Rate) <- (remove.transiet + 1):total.flu.seasons
+    return(Switch.Rate)
+}
+test.Object.Exists <-
+function (object) 
+{
+    return(exists(as.character(substitute(object))))
+}
+translate.to.k.ranges <-
+function (x) 
+{
+    x <- PTN.stats$quan.g.k
+    y <- NULL
+    for (i in 1:(length(x) - 2)) {
+        y <- c(y, paste("degree in [", as.character(x[i]), "-", 
+            as.character(x[i + 1] - 1), "]", sep = ""))
+    }
+    i <- length(x) - 1
+    y <- c(y, paste("degree in [", as.character(x[i]), "-", as.character(x[i + 
+        1]), "]", sep = ""))
+    return(y)
+}
+w.distrubution.analysis <-
+function (seasonal.output, total.flu.seasons, g.k.cat, g.k.label, 
+    num.breaks = 50, plot = FALSE) 
+{
+    histo.breaks <- c(0:num.breaks)/num.breaks
+    histo.mids <- c(0:(num.breaks - 1))/num.breaks + 1/(2 * num.breaks)
+    dist.w <- matrix(NA, nrow = total.flu.seasons, ncol = 3 + 
+        (length(histo.breaks) - 1), dimnames = list(c(1:total.flu.seasons), 
+        c("year", "mean", "var", paste("w.hist", histo.mids, 
+            sep = ""))))
+    dist.w.by.k.cat <- list(NULL)
+    num.cat <- max(g.k.cat)
+    for (flu.season in 1:total.flu.seasons) {
+        w <- seasonal.output[[flu.season]]$states[, "w"]
+        dist.w[flu.season, ] <- c(flu.season, mean(w), var(w), 
+            hist(w, breaks = histo.breaks, plot = plot)$density/(num.breaks))
+        w.split <- cbind(w = w, g.k.cat = g.k.cat)
+        w.split <- split(w.split[, "w"], w.split[, "g.k.cat"])
+        mat <- matrix(NA, nrow = num.cat, ncol = 2, dimnames = list(g.k.label, 
+            c("mean_w", "var_w")))
+        i <- 1
+        for (cat in as.numeric(names(w.split))) {
+            mat[cat, ] <- c(mean(w.split[[i]]), var(w.split[[i]]))
+            i <- i + 1
+        }
+        dist.w.by.k.cat[[flu.season]] <- mat
+    }
+    return(list(dist.w = dist.w, dist.w.by.k.cat = dist.w.by.k.cat))
+}
+#New percolation plotting function
+plot.qtable<-function(perc,nob,conf.int=TRUE,show.points=TRUE,pcol="black",smooth=TRUE,add=FALSE,...){
+   #perc is a three column matrix with columns 'p', 'q(p)' and 'var[q(p)]', respectively.
+   #this function uses the bootstrapped variance to calculate the approximate 95% confidence intervals
+   x<-perc[,1]
+   y<-perc[,2]
+   upbar<-y+1.96*sqrt(perc[,3])
+   dnbar<-y-1.96*sqrt(perc[,3])
+   thedata<-do.call("rbind",lapply(nob$Results,function(x) c(sum(x$states[,"vacc"]),sum(x$states[,"inf"]))/as.numeric(nob$Params["N"])))
+   ywin<-c(0,max(c(y,thedata[,2],upbar)))
+   xwin<-c(0,max(c(x,thedata[,1])))
+   if(!add){
+   plot(x=x,y=y,ylab="q(p)",xlab="p",ylim=ywin,xlim=xwin,...)
+   if(conf.int){segments(x0=x,x1=x,y0=upbar,y1=dnbar)}
+   if(show.points){points(thedata,pch=19,col=pcol)}
+   if(smooth){points(supsmu(thedata[,1],thedata[,2]),type="l")}
+   }
+   if(add){
+   points(x=x,y=y,...)
+   if(conf.int){segments(x0=x,x1=x,y0=upbar,y1=dnbar)}
+   if(show.points){points(thedata,pch=19,col=pcol)}
+   if(smooth){points(supsmu(thedata[,1],thedata[,2]),type="l")}
+   }
+}
+
+#EOF

@@ -1,0 +1,151 @@
+* using log directory ‘/home/cmarcum/SvnWorkspace/RiskPerceptionNetworks/Tools/nirm/nirm.Rcheck’
+* using R version 2.15.0 (2012-03-30)
+* using platform: x86_64-pc-linux-gnu (64-bit)
+* using session charset: UTF-8
+* checking for file ‘nirm/DESCRIPTION’ ... OK
+* checking extension type ... Package
+* this is package ‘nirm’ version ‘0.5.5’
+* checking package namespace information ... OK
+* checking package dependencies ... OK
+* checking if this is a source package ... OK
+* checking if there is a namespace ... OK
+* checking for executable files ... OK
+* checking whether package ‘nirm’ can be installed ... OK
+* checking installed package size ... OK
+* checking package directory ... OK
+* checking for portable file names ... OK
+* checking for sufficient/correct file permissions ... OK
+* checking DESCRIPTION meta-information ... OK
+* checking top-level files ... OK
+* checking index information ... OK
+* checking package subdirectories ... OK
+* checking R files for non-ASCII characters ... OK
+* checking R files for syntax errors ... OK
+* checking whether the package can be loaded ... OK
+* checking whether the package can be loaded with stated dependencies ... OK
+* checking whether the package can be unloaded cleanly ... OK
+* checking whether the namespace can be loaded with stated dependencies ... OK
+* checking whether the namespace can be unloaded cleanly ... OK
+* checking for unstated dependencies in R code ... OK
+* checking S3 generic/method consistency ... WARNING
+split:
+  function(x, f, drop, ...)
+split.degree.groups:
+  function(g.k, groups)
+
+plot:
+  function(x, ...)
+plot.Global.Dynamics:
+  function(Dyn, file.name, title, legend, height, width)
+
+plot:
+  function(x, ...)
+plot.Percolation.Analysis:
+  function(percolation.analisis, file.name, title, Dyn, seg, height,
+           width)
+
+plot:
+  function(x, ...)
+plot.QCA:
+  function(quick.cluster.analysis, file.name, legend, height, width)
+
+plot:
+  function(x, ...)
+plot.Vacc.Prob.Dist:
+  function(dist.w, num.breaks, histo.mids, years, file.name, height,
+           width)
+
+plot:
+  function(x, ...)
+plot.individual.w.dyn:
+  function(seasonal.output, N, focus.years, file.name, height, width)
+
+See section ‘Generic functions and methods’ of the ‘Writing R
+Extensions’ manual.
+* checking replacement functions ... OK
+* checking foreign function calls ... OK
+* checking R code for possible problems ... NOTE
+File ‘nirm/R/zzz.R’:
+  .onLoad calls:
+    cat("\n\t", abt$Package, ":", abt$Title, "\n")
+    cat("Version: ", abt$Version, "\n")
+    cat("Compiled:", abt$Date, "\n\n")
+    cat(paste("copyright (c) 2012, Raffaele Vardavas and Christopher S. Marcum, RAND\n",     sep = ""))
+    cat("Type help(package=\"nirm\") to get started.\n")
+
+Package startup functions should use ‘packageStartupMessage’ to
+  generate messages.
+See section ‘Good practice’ in ?.onAttach.
+
+Correlation.Analyses: no visible binding for global variable
+  ‘total.flu.seasons’
+NW.watts.strogatz.game: no visible binding for global variable ‘N’
+Regenerate.g.PTN: warning in NW.watts.strogatz.game(dim = 1, size = N,
+  nei = round(ave.degree/2, 0), phi): partial argument match of 'dim'
+  to 'dimension'
+SIR.Prob.Infection.Table: no visible binding for global variable
+  ‘initial.inf.prop’
+nirm: no visible binding for global variable
+  ‘Do.Comp.Percolation.Analysis’
+nirm: warning in NW.watts.strogatz.game(dim = 1, size = N, nei =
+  round(ave.degree/2, 0), phi): partial argument match of 'dim' to
+  'dimension'
+nirm: no visible binding for global variable ‘p.seq’
+nirm: no visible binding for global variable ‘mc.perc.runs’
+nirm: no visible global function definition for ‘get.Local.Inf.Delta’
+nirm: no visible global function definition for ‘get.Local.Vacc.Delta’
+nirm: no visible global function definition for ‘get.Global.Inf.Delta’
+nirm: no visible global function definition for ‘get.Global.Vacc.Delta’
+nn.like.with.like.analysis: no visible binding for global variable
+  ‘total.flu.seasons’
+plot.Percolation.Analysis: no visible binding for global variable ‘N’
+plot.individual.w.dyn: no visible binding for global variable
+  ‘fil.name’
+set.behavioral.model: no visible binding for global variable ‘verbose’
+set.behavioral.model : get.Global.Vacc.Delta: no visible binding for
+  global variable ‘pc.PTN’
+translate.to.k.ranges: no visible binding for global variable
+  ‘PTN.stats’
+* checking Rd files ... OK
+* checking Rd metadata ... OK
+* checking Rd cross-references ... WARNING
+Unknown package(s) ‘relevent’ in Rd xrefs
+* checking for missing documentation entries ... WARNING
+Undocumented code objects:
+  ‘BA.scale.free.game’ ‘Change.Vacc.Prob’ ‘Copy.All.Vertex.Attributes’
+  ‘Correlation.Analyses’ ‘Get.Infected.ID.from.sub.g’
+  ‘Get.Infected.samp.from.sub.g’ ‘Global.Vacc.Delta.Threshold’
+  ‘Initialize.All.Vertex.Attributes’ ‘NW.watts.strogatz.game’
+  ‘Quick.cluster.analysis’ ‘Regenerate.g.PTN’ ‘SIR.ODE’ ‘SIR.ODE.model’
+  ‘SIR.Prob.Infection.Table’ ‘Switch.Behavior.Rate.Analysis’
+  ‘all.to.all.game’ ‘assign.global.parametes’ ‘do.w.k.correlation’
+  ‘generate.distribution’ ‘generate.knnk’
+  ‘get.Active.Transmission.Network’ ‘get.T.bond’ ‘get.ave.X.over.nn’
+  ‘get.exposed.network’ ‘get.likelihood.surrounded.by.similars’
+  ‘get.nn.list.of.SN’ ‘get.num.nn.with.att’ ‘get.person.IDs’
+  ‘get.times.between.spikes’ ‘graph.union.plus.attributes’
+  ‘map.to.full.g’ ‘nn.like.with.like.analysis’ ‘plot.Global.Dynamics’
+  ‘plot.Percolation.Analysis’ ‘plot.QCA’ ‘plot.Vacc.Prob.Dist’
+  ‘plot.individual.w.dyn’ ‘print.nirm’ ‘set.behavioral.model’
+  ‘split.degree.groups’ ‘test.Object.Exists’ ‘translate.to.k.ranges’
+  ‘w.distrubution.analysis’
+All user-level objects in a package should have documentation entries.
+See the chapter ‘Writing R documentation files’ in the ‘Writing R
+Extensions’ manual.
+* checking for code/documentation mismatches ... OK
+* checking Rd \usage sections ... WARNING
+Undocumented arguments in documentation object 'nirm'
+  ‘verbose’
+
+Functions with \usage entries need to have the appropriate \alias
+entries, and all their arguments documented.
+The \usage entries must correspond to syntactically valid R code.
+See the chapter ‘Writing R documentation files’ in the ‘Writing R
+Extensions’ manual.
+* checking Rd contents ... OK
+* checking for unstated dependencies in examples ... OK
+* checking examples ... NONE
+* checking PDF version of manual ... WARNING
+LaTeX errors when creating PDF version.
+This typically indicates Rd problems.
+* checking PDF version of manual without hyperrefs or index ... ERROR

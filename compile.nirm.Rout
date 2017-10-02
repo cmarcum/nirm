@@ -1,0 +1,216 @@
+
+R version 2.15.2 (2012-10-26) -- "Trick or Treat"
+Copyright (C) 2012 The R Foundation for Statistical Computing
+ISBN 3-900051-07-0
+Platform: x86_64-unknown-linux-gnu (64-bit)
+
+R is free software and comes with ABSOLUTELY NO WARRANTY.
+You are welcome to redistribute it under certain conditions.
+Type 'license()' or 'licence()' for distribution details.
+
+  Natural language support but running in an English locale
+
+R is a collaborative project with many contributors.
+Type 'contributors()' for more information and
+'citation()' on how to cite R or R packages in publications.
+
+Type 'demo()' for some demos, 'help()' for on-line help, or
+'help.start()' for an HTML browser interface to help.
+Type 'q()' to quit R.
+
+> #This is the nirm package compiler
+> # Author: Christopher Steven Marcum
+> # Created on: January 2012
+> # Last Modified: 30 April 2012
+> #The RiskPerceptionNetworks/Tools/nirm/nirm.master.R file is the master file of the nirm package.
+> # nirm.master.R contains special hooks that should not be removed or duplicated. 
+> # Here is a list of those hooks:
+> #  order) Name in nirm, name here
+> #  1) FUNCTIONS HERE, FUN
+> #  2) BEH MODELS HERE, BEH
+> #  3) PTN FILE HERE, PTN
+> #  4) DYNAMICS FILE HERE, DYN
+> #  5) EOF, 
+> 
+> ##Part 1: Collecting Functions
+> #Locate and store the paths to Raff's functions, excepting that pesky library.R file:
+> raffs.lib<-paste("../../Flu_R21/Flu model on the network/Library/",dir("../../Flu_R21/Flu model on the network/Library"),sep="")
+> raffs.lib<-raffs.lib[-which(grepl("library.R",raffs.lib))]
+> 
+> #source the files (stripping any commments, whitespaces, and illegal formatting), 
+> # drop the paths, then dump them to an intuitively named file. Finally, clean up the workspace.
+> sapply(raffs.lib,function(x) source(x, keep.source = FALSE))
+Loading required package: deSolve
+        ../../Flu_R21/Flu model on the network/Library/all.to.all.game.R
+value   ?                                                               
+visible FALSE                                                           
+        ../../Flu_R21/Flu model on the network/Library/assign.global.parametes.R
+value   ?                                                                       
+visible FALSE                                                                   
+        ../../Flu_R21/Flu model on the network/Library/BA.scale.free.game.R
+value   ?                                                                  
+visible FALSE                                                              
+        ../../Flu_R21/Flu model on the network/Library/Change.Vacc.Prob.R
+value   ?                                                                
+visible FALSE                                                            
+        ../../Flu_R21/Flu model on the network/Library/Copy.All.Vertex.Attributes.R
+value   ?                                                                          
+visible FALSE                                                                      
+        ../../Flu_R21/Flu model on the network/Library/Correlation.Analyses.R
+value   ?                                                                    
+visible FALSE                                                                
+        ../../Flu_R21/Flu model on the network/Library/do.w.k.correlation.R
+value   ?                                                                  
+visible FALSE                                                              
+        ../../Flu_R21/Flu model on the network/Library/generate.distribution.R
+value   ?                                                                     
+visible FALSE                                                                 
+        ../../Flu_R21/Flu model on the network/Library/generate.knnk.R
+value   ?                                                             
+visible FALSE                                                         
+        ../../Flu_R21/Flu model on the network/Library/get.Active.Transmission.Network.R
+value   ?                                                                               
+visible FALSE                                                                           
+        ../../Flu_R21/Flu model on the network/Library/get.ave.X.over.nn.R
+value   ?                                                                 
+visible FALSE                                                             
+        ../../Flu_R21/Flu model on the network/Library/get.exposed.network.R
+value   ?                                                                   
+visible FALSE                                                               
+        ../../Flu_R21/Flu model on the network/Library/Get.Infected.ID.from.sub.g.R
+value   ?                                                                          
+visible FALSE                                                                      
+        ../../Flu_R21/Flu model on the network/Library/Get.Infected.samp.from.sub.g .R
+value   ?                                                                             
+visible FALSE                                                                         
+        ../../Flu_R21/Flu model on the network/Library/get.likelihood.surrounded.by.similars.R
+value   ?                                                                                     
+visible FALSE                                                                                 
+        ../../Flu_R21/Flu model on the network/Library/get.nn.list.of.SN.R
+value   ?                                                                 
+visible FALSE                                                             
+        ../../Flu_R21/Flu model on the network/Library/get.num.nn.with.att.R
+value   ?                                                                   
+visible FALSE                                                               
+        ../../Flu_R21/Flu model on the network/Library/get.person.IDs.R
+value   ?                                                              
+visible FALSE                                                          
+        ../../Flu_R21/Flu model on the network/Library/get.T.bond.R
+value   ?                                                          
+visible FALSE                                                      
+        ../../Flu_R21/Flu model on the network/Library/get.times.between.spikes.R
+value   ?                                                                        
+visible FALSE                                                                    
+        ../../Flu_R21/Flu model on the network/Library/Global.Vacc.Delta.Threshold.R
+value   ?                                                                           
+visible FALSE                                                                       
+        ../../Flu_R21/Flu model on the network/Library/graph.union.plus.attributes.R
+value   ?                                                                           
+visible FALSE                                                                       
+        ../../Flu_R21/Flu model on the network/Library/Initialize.All.Vertex.Attributes.R
+value   ?                                                                                
+visible FALSE                                                                            
+        ../../Flu_R21/Flu model on the network/Library/map.to.full.g.R
+value   ?                                                             
+visible FALSE                                                         
+        ../../Flu_R21/Flu model on the network/Library/nn.like.with.like.analysis.R
+value   ?                                                                          
+visible FALSE                                                                      
+        ../../Flu_R21/Flu model on the network/Library/NW.watts.strogatz.game.R
+value   ?                                                                      
+visible FALSE                                                                  
+        ../../Flu_R21/Flu model on the network/Library/plot.Global.Dynamics.R
+value   ?                                                                    
+visible FALSE                                                                
+        ../../Flu_R21/Flu model on the network/Library/plot.individual.w.dyn.R
+value   ?                                                                     
+visible FALSE                                                                 
+        ../../Flu_R21/Flu model on the network/Library/plot.Percolation.Analysis.R
+value   ?                                                                         
+visible FALSE                                                                     
+        ../../Flu_R21/Flu model on the network/Library/plot.QCA.R
+value   ?                                                        
+visible FALSE                                                    
+        ../../Flu_R21/Flu model on the network/Library/plot.Vacc.Prob.Dist.R
+value   ?                                                                   
+visible FALSE                                                               
+        ../../Flu_R21/Flu model on the network/Library/Quick.cluster.analysis.R
+value   ?                                                                      
+visible FALSE                                                                  
+        ../../Flu_R21/Flu model on the network/Library/Regenerate.g.PTN.R
+value   ?                                                                
+visible FALSE                                                            
+        ../../Flu_R21/Flu model on the network/Library/SIR.ODE.R
+value   ?                                                       
+visible FALSE                                                   
+        ../../Flu_R21/Flu model on the network/Library/SIR.Prob.Infection.Table.R
+value   ?                                                                        
+visible FALSE                                                                    
+        ../../Flu_R21/Flu model on the network/Library/split.degree.groups.R
+value   ?                                                                   
+visible FALSE                                                               
+        ../../Flu_R21/Flu model on the network/Library/Switch.Behavior.Rate.Analysis.R
+value   ?                                                                             
+visible FALSE                                                                         
+        ../../Flu_R21/Flu model on the network/Library/test.Object.Exists.R
+value   ?                                                                  
+visible FALSE                                                              
+        ../../Flu_R21/Flu model on the network/Library/translate.to.k.ranges.R
+value   ?                                                                     
+visible FALSE                                                                 
+        ../../Flu_R21/Flu model on the network/Library/w.distrubution.analysis.R
+value   ?                                                                       
+visible FALSE                                                                   
+> rm(raffs.lib)
+> dump(ls(all = TRUE), file = "nirm.funs.R")
+> rm(list=ls())
+> 
+> ##Part 2: Writing Functions and other scripts to master file nirm.R
+> #Now for some real blackmagic:
+> mfile<-"nirm.master.R" #The master file
+> ofile<-"nirm.R" #The output file to be symbolically linked to the R package Tree
+> 
+> system(paste("cp", mfile,ofile,sep=" "))
+> 
+> #The FUN hook
+> ifile<-"nirm.funs.R"
+> fun.hook<-as.numeric(system(paste("grep 'FUNCTIONS HERE' ", ofile," -n | cut -f1 --delim=':'",sep=""),intern=TRUE))+1
+> system(paste("sed -i '",fun.hook,"r ", ifile,"' ", ofile,sep=""))
+> 
+> #The BEH hook
+> ifile<-"../../Flu_R21/Flu model on the network/Behavioral.Models.R"
+> beh.hook<-as.numeric(system(paste("grep 'BEH MODELS HERE' ", ofile," -n | cut -f1 --delim=':'",sep=""),intern=TRUE))+1
+> system(paste("sed -i '",beh.hook,"r ", ifile,"' ", ofile,sep=""))
+> 
+> #The PTN hook
+> ifile<-"../../Flu_R21/Flu model on the network/Construct_PTN.R"
+> ptn.hook<-as.numeric(system(paste("grep 'PTN FILE HERE' ", ofile," -n | cut -f1 --delim=':'",sep=""),intern=TRUE))+1
+> system(paste("sed -i '",ptn.hook,"r ", ifile,"' ", ofile,sep=""))
+> 
+> #The DYN hook
+> ifile<-"../../Flu_R21/Flu model on the network/Evolve.Dynamics.R"
+> dyn.hook<-as.numeric(system(paste("grep 'DYNAMICS FILE HERE' ", ofile," -n | cut -f1 --delim=':'",sep=""),intern=TRUE))+1
+> system(paste("sed -i '",dyn.hook,"r ", ifile,"' ", ofile,sep=""))
+> 
+> #Clean up the workspace
+> rm(list=ls())
+> 
+> ##Part 3: Compiling R Package --- Note, nirm/ChangeLog will always need to be updated manually.
+> system("mv nirm.R nirm/R/nirm.R")
+> system("rm nirm.funs.R")
+> system("rm *~")
+rm: cannot remove `*~': No such file or directory
+> system("R CMD build nirm/")
+* checking for file ‘nirm/DESCRIPTION’ ... OK
+* preparing ‘nirm’:
+* checking DESCRIPTION meta-information ... OK
+* checking for LF line-endings in source and make files
+* checking for empty or unneeded directories
+* building ‘nirm_0.6.4.tar.gz’
+
+> pkg.name<-dir(pattern=".tar.gz")
+> system(paste("mv",pkg.name,"nirm.tags/",sep=" "))
+> q("no")
+> proc.time()
+   user  system elapsed 
+  0.374   0.157   0.514 

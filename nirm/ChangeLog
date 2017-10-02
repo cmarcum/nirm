@@ -1,0 +1,53 @@
+2012-01-12 Christopher Steven Marcum <cmarcum@uci.edu>
+
+#This file complies with 2011 GNU Documentation Standards.
+#For more information, see: 
+#http://www.gnu.org/prep/standards/standards.html#Change-Logs
+
+ChangeLog Version Notes For
+Package: nirm
+Type: Package
+Title: Network Inductive Reasoning Model
+
+2012-01-12 
+	v.0.5
+		* Internal release.
+2012-04-30
+	v.0.5.5
+		* New release. Removed betas, added R0, added new analytic functions, changed length of vertex attributes to N-1 in vattr.
+		.onLoad (zzz.R): now using new package startup message functions.
+		nirm (nirm.R,master.nirm.R): updated master file to incorporate Raff's new parameters.
+		print.nirm (print.nirm.R, master.nirm.R): fixed params names for pretty printing.
+
+2012-05-01
+	v.0.5.6
+		nirm (nirm.R): changed how params.of.model names were assigned.
+
+2012-05-07
+	v.0.5.7
+		nirm (nirm.R): Raff fixed isolates bug.
+		print.nirm (print.nirm.R, master.nirm.R): Added ave.degree as an output. Fixed the spacing.
+2012-05-07
+	v.0.5.8
+		nirm (nirm.R, master.nirm.R): Changed user-supplied behavioral model handling.
+2012-05-15
+	v.0.6.0
+		nirm (nirm.R, master.nirm.R): Added output.file.name to nirm object.
+		write.nirm.log (nirm.R, master.nirm.R): Added a function to write out a delimited file. New function.
+		read.nirm.log (nirm.R, master.nirm.R): Added a function to read a delimited file. New function.
+		load.nirm (nirm.R, master.nirm.R): Added a function that loads saved data associated with a nirm object. New function.
+		analyze.nirm (nirm.R, master.nirm.R): Added a function that runs Raff's analysis scripts. new function.
+		percolation.nirm (nirm.R, master.nirm.R): Added a function that runs the percolation analysis on a nirm object. New function.
+2012-05-21
+	v.0.6.1
+		percolation.nirm (nirm.R, master.nirm.R): Fixed printing and added some options.
+		nirm (nirm.R, master.nirm.R): Repaired model parameters saving.
+2012-07-17
+	v.0.6.2
+		nirm (nirm.R master.nirm.R): We changed the handling of the Original_Personal model to incorporate pc.PTN when set.behavioral model is called, which was not a priori assigned.
+2012-10-23
+	v.0.6.3
+		plot.qtable (nirm.R, master.nirm.R): Added a new function to plot percolation results.
+2013-05-01
+	v.0.6.4a
+		nirm (nirm.R, master.nirm.R): Raff updated compatibility upstream with igraph++.

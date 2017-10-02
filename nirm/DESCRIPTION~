@@ -1,0 +1,16 @@
+Package: nirm
+Type: Package
+Title: Network Inductive Reasoning Model
+Version: 0.6.4a
+Date: 2013-05-01
+Authors@R: c(person("Raffaele", "Vardavas", role = c("aut"),
+   email = "vardabas@rand.org"),
+   person("Christopher Steven", "Marcum", role = c("cre","ctb"),
+   email="cmarcum@uci.edu"))
+Author: Raffaele Vardavas and Christopher Steven Marcum
+Maintainer: Christopher Steven Marcum <cmarcum@uci.edu>
+Description: Fits Vardavas's inductive reasoning model to 
+   theoretical or empirical networks.
+License: GPL (>= 2.0)
+Depends: R (>= 2.12), igraph, deSolve
+LazyLoad: yes

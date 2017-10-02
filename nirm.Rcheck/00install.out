@@ -1,0 +1,16 @@
+* installing *source* package ‘nirm’ ...
+** R
+** preparing package for lazy loading
+** help
+*** installing help indices
+** building package indices
+** testing if installed package can be loaded
+
+	 nirm : Network Inductive Reasoning Model 
+Version:  0.5.5 
+Compiled: 2012-01-12 
+
+copyright (c) 2012, Raffaele Vardavas and Christopher S. Marcum, RAND
+Type help(package="nirm") to get started.
+
+* DONE (nirm)
